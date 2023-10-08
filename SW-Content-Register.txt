@@ -1,0 +1,18 @@
+NXP Software Content Register
+
+Release Name:     imx8ulp-cm33-usecase
+Version:          Rev.0
+Outgoing License: BSD-3-Clause
+License File:     LICENSE.txt
+Type of content:  sourcecode
+Description:      Cortex-M33 use cases for i.MX 8ULP
+Release Location: https://github.com/nxp-imx-support/imx8ulp-cm33-usecase
+Branch:           sensorhub_sync_github
+Origin:           NXP (BSD-3-Clause)
+                  Mentor (BSD-3-Clause)
+                  Xilinx (BSD-3-Clause)
+                  Waveshare (MIT)
+                  STMicroelectronics (BSD-3-Clause)
+                  Texas Instruments (BSD-3-Clause)
+                  Google (BSD-3-Clause)
+                  Amazon FreeRTOS (MIT)
