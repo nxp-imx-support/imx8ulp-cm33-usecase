@@ -288,7 +288,7 @@ SET(CMAKE_EXE_LINKER_FLAGS_DEBUG " \
     -Xlinker \
     --defsym=__stack_size__=0x400 \
     -Xlinker \
-    --defsym=__heap_size__=0x400 \
+    --defsym=__heap_size__=0x10000 \
     ${FPU} \
     ${SPECS} \
     -T${ProjDirPath}/MIMX8UD7xxxxx_cm33_ram.ld -static \
