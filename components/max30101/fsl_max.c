@@ -42,6 +42,7 @@ static status_t MAX_Enable_Mode_With_Power(max_handle_t *max_handle, uint8_t mod
 {
     uint8_t reg_val = mode;
     status_t result = kStatus_Success;
+    uint8_t tmp = 0;
 
     if (en)
     {
@@ -50,13 +51,22 @@ static status_t MAX_Enable_Mode_With_Power(max_handle_t *max_handle, uint8_t mod
             /* SpO2 can be calibrated using temperature, so we will read temperature first. */
             MAX_StartTemp(max_handle);
         }
+
+        result = MAX_WriteReg(max_handle, MODE_CFG_REG, reg_val);
+
+        /* Clear irq bits */
+        if (kStatus_Success != MAX_ReadReg(max_handle, INT_STATUS_REG1, &tmp, 1))
+        {
+            PRINTF("Read MAX Register 1 failed!\r\n");
+            return kStatus_Fail;
+        }
     }
     else
     {
         reg_val |= MODE_CFG_SHUTDOWN_MASK;
-    }
 
-    result = MAX_WriteReg(max_handle, MODE_CFG_REG, reg_val);
+        result = MAX_WriteReg(max_handle, MODE_CFG_REG, reg_val);
+    }
 
     return result;
 }
