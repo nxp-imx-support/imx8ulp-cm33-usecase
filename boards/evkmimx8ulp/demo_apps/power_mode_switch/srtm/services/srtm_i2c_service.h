@@ -31,6 +31,7 @@
 
 /* Protocol definition */
 #define SRTM_I2C_FLAG_NEED_STOP (0x200U)
+#define SRTM_I2C_FLAG_NO_START (0x400U)
 
 /* I2C Service Notification Command definition */
 

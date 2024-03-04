@@ -3133,6 +3133,7 @@ static srtm_status_t APP_SRTM_I2C_Write(srtm_i2c_adapter_t adapter,
     status_t retVal   = kStatus_Fail;
     uint32_t needStop = (flags & SRTM_I2C_FLAG_NEED_STOP) ? kLPI2C_TransferDefaultFlag : kLPI2C_TransferNoStopFlag;
 
+    needStop |= ((flags & SRTM_I2C_FLAG_NO_START) ? kLPI2C_TransferNoStartFlag : 0);
     switch (type)
     {
         case SRTM_I2C_TYPE_LPI2C:
@@ -3155,6 +3156,7 @@ static srtm_status_t APP_SRTM_I2C_Read(srtm_i2c_adapter_t adapter,
     status_t retVal   = kStatus_Fail;
     uint32_t needStop = (flags & SRTM_I2C_FLAG_NEED_STOP) ? kLPI2C_TransferDefaultFlag : kLPI2C_TransferNoStopFlag;
 
+    needStop |= ((flags & SRTM_I2C_FLAG_NO_START) ? kLPI2C_TransferNoStartFlag : 0);
     switch (type)
     {
         case SRTM_I2C_TYPE_LPI2C:
