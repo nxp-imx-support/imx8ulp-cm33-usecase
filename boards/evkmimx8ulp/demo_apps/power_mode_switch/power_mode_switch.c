@@ -194,12 +194,6 @@ static void APP_ReconfigurePinForWakeup(lpm_rtd_power_mode_e target_mode)
         /* Enable interrupts for wakeup pin */
         gpio_inst->ICR[gpio_pin_index] = gpioICRBackup[gpio_pin_grp][gpio_pin_index];
 
-        /*
-         * Disable interrupt temperarily to prevent glitch
-         * interrupt during switching IOMUXC pin selection
-         */
-        //DisableIRQ(WUU0_IRQn);
-
         if (target_mode == LPM_PowerModeDeepSleep)
         {
             iomuxc_pcr0_iomuxcarry[gpio_pin_grp][gpio_pin_index] = iomuxBackup[gpio_pin_grp][gpio_pin_index];
@@ -209,8 +203,6 @@ static void APP_ReconfigurePinForWakeup(lpm_rtd_power_mode_e target_mode)
             /* Reconfigure IOMUX as WUU0_Px, the mux value is 13 */
             iomuxc_pcr0_iomuxcarry[gpio_pin_grp][gpio_pin_index] = IOMUXC0_PCR0_IOMUXCARRAY0_MUX(13);
         }
-
-        //EnableIRQ(WUU0_IRQn);
     }
 
     WUU0->PE1 = tmp_pe1;

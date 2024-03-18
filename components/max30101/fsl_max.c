@@ -189,13 +189,13 @@ status_t MAX_Init(max_handle_t *max_handle, max_config_t *configure)
         {
             return kStatus_Fail;
         }
-        
+
         if (tmp != kMAX_WHO_AM_I_Device_ID)
         {
             return kStatus_Fail;
         }
         PRINTF("max3010x part id %02x\r\n", tmp);
-        
+
         if (MAX_ReadReg(max_handle, ID_REV_REG, &tmp, 1) != kStatus_Success)
         {
             return kStatus_Fail;

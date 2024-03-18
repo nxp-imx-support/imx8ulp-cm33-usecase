@@ -14,7 +14,7 @@ typedef struct _max_alg_result_t
 {
     uint32_t hr_beats;
     uint32_t spo2_rate;
-} max_alg_result_t;    
+} max_alg_result_t;
 
 /*******************************************************************************
  * API
