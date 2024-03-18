@@ -15,6 +15,7 @@
 #if defined(BOARD_USE_PCA6416A) && BOARD_USE_PCA6416A
 #include "fsl_pca6416a.h"
 #endif
+#include "fsl_wuu.h"
 /*******************************************************************************
  * Definitions
  ******************************************************************************/
@@ -46,6 +47,39 @@
 #define BOARD_CODEC_I2C_BASEADDR   LPI2C0
 #define BOARD_CODEC_I2C_CLOCK_FREQ CLOCK_GetLpi2cClkFreq(0)
 #define BOARD_CODEC_I2C_INSTANCE   0U
+
+/* Low power settings */
+/* LPTMR0 is WUU internal module 0. */
+#define WUU_MODULE_SYSTICK WUU_MODULE_LPTMR0
+/* Allow systick to be a wakeup source in Power Down mode. */
+#define SYSTICK_WUU_WAKEUP (true)
+
+#define APP_LPTMR1_IRQ_PRIO (5U)
+
+/* 1 - ONOFF, 2 - Vol Plus, 3 = Vol Minus */
+#define APP_WAKEUP_BTN_INDEX      1
+#if (APP_WAKEUP_BTN_INDEX == 1)
+    #define APP_WAKEUP_PIN_ID      APP_PIN_ONOFF_BTN
+    #define WUU_WAKEUP_PIN_IDX     (2U) /* WUU0_P2 used for RTD Button (Power) */
+    #define APP_WAKEUP_BUTTON_NAME "RTD BUTTON (Power)"
+#elif (APP_WAKEUP_BTN_INDEX == 2)
+    #define APP_WAKEUP_PIN_ID      APP_PIN_VOLPLUS_BTN
+    #define WUU_WAKEUP_PIN_IDX     (3U) /* WUU0_P3 used for RTD Button (Vol Plus) */
+    #define APP_WAKEUP_BUTTON_NAME "RTD BUTTON (Vol Plus)"
+#elif (APP_WAKEUP_BTN_INDEX == 3)
+    #define APP_WAKEUP_PIN_ID      APP_PIN_VOLMINUS_BTN
+    #define WUU_WAKEUP_PIN_IDX     (4U) /* WUU0_P4 used for RTD Button (Vol Minus) */
+    #define APP_WAKEUP_BUTTON_NAME "RTD BUTTON (Vol Minus)"
+#else
+    #error "Invalid Wakeup Button ID!"
+#endif
+#define WUU_WAKEUP_PIN_TYPE    kWUU_ExternalPinFallingEdge
+
+#define BOARD_WAKEUP_PINS_LIST \
+    {   \
+        APP_WAKEUP_PIN_ID,  \
+        APP_PIN_LSM6DSO_INT1    \
+    }
 
 /* Board mipi to hdmi bridge ic(IT6161) */
 #define BOARD_DISPLAY_I2C_BASEADDR   LPI2C0

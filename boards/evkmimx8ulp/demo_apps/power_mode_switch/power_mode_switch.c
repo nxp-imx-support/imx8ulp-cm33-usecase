@@ -35,16 +35,6 @@
 #define APP_DEBUG_UART_BAUDRATE       (115200U)             /* Debug console baud rate. */
 #define APP_DEBUG_UART_DEFAULT_CLKSRC kCLOCK_IpSrcSircAsync /* SCG SIRC clock. */
 
-/* LPTMR0 is WUU internal module 0. */
-#define WUU_MODULE_SYSTICK WUU_MODULE_LPTMR0
-/* Allow systick to be a wakeup source in Power Down mode. */
-#define SYSTICK_WUU_WAKEUP (false)
-
-#define APP_LPTMR1_IRQ_PRIO (5U)
-#define WUU_WAKEUP_PIN_IDX     (4U) /* WUU0_P4 used for RTD Button (Power) */
-#define WUU_WAKEUP_PIN_TYPE    kWUU_ExternalPinFallingEdge
-#define APP_WAKEUP_BUTTON_NAME "RTD BUTTON (Power)"
-
 typedef enum _app_wakeup_source
 {
     kAPP_WakeupSourceLptmr, /*!< Wakeup by LPTMR.        */
@@ -65,8 +55,6 @@ extern void UPOWER_InitBuck2Buck3Table(void);
 /*******************************************************************************
  * Variables
  ******************************************************************************/
-static uint32_t s_wakeupTimeout;           /* Wakeup timeout. (Unit: Second) */
-static app_wakeup_source_t s_wakeupSource; /* Wakeup source.                 */
 static SemaphoreHandle_t s_wakeupSig;
 static const char *s_modeNames[] = {"ACTIVE", "WAIT", "STOP", "Sleep", "Deep Sleep", "Power Down", "Deep Power Down"};
 extern lpm_ad_power_mode_e AD_CurrentMode;
@@ -135,134 +123,152 @@ mode_combi_t mode_combi_array_for_dual_or_lp_boot[] = {
 extern lpm_ad_power_mode_e AD_CurrentMode;
 extern pca9460_buck3ctrl_t buck3_ctrl;
 extern pca9460_ldo1_cfg_t ldo1_cfg;
-static uint32_t iomuxBackup[25 + 16 + 24]; /* Backup 25 PTA, 16 PTB and 24 PTC IOMUX registers */
-static uint32_t gpioICRBackup[25 + 16 + 24];
+static uint32_t iomuxBackup[3][25]; /* Backup 25 PTA, 16 PTB and 24 PTC IOMUX registers */
+static uint32_t gpioICRBackup[3][25];
 
+static uint32_t g_Wakeup_Pins[] = BOARD_WAKEUP_PINS_LIST;
+
+void APP_SuspendTaskForWakeup(void)
+{
+    xSemaphoreTake(s_wakeupSig, portMAX_DELAY);
+}
+
+static bool APP_Is_WakeupPin(int32_t pin_grp, int32_t pin_idx)
+{
+    int32_t i = 0;
+
+    for (i = 0; i < ARRAY_SIZE(g_Wakeup_Pins); ++i)
+    {
+        uint32_t gpio_pin_id = 0;
+        int32_t gpio_pin_grp = 0, gpio_pin_index = 0;
+
+        gpio_pin_id = g_Wakeup_Pins[i];
+        gpio_pin_grp = (gpio_pin_id >> 8) & 0xFFU;
+        gpio_pin_index = (gpio_pin_id & 0xFFU);
+
+        if ((pin_grp == gpio_pin_grp) && (gpio_pin_index == pin_idx))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/* Reconfigure GPIO wakup pin's pinmux as WUU_Px */
+static void APP_ReconfigurePinForWakeup(lpm_rtd_power_mode_e target_mode)
+{
+    int32_t i = 0;
+    volatile uint32_t *iomuxc_pcr0_iomuxcarry[3] = { NULL };
+    uint32_t tmp_pe1 = 0, tmp_pe2 = 0;
+
+    iomuxc_pcr0_iomuxcarry[0] = IOMUXC0->PCR0_IOMUXCARRAY0;
+    iomuxc_pcr0_iomuxcarry[1] = IOMUXC0->PCR0_IOMUXCARRAY1;
+    iomuxc_pcr0_iomuxcarry[2] = IOMUXC0->PCR0_IOMUXCARRAY2;
+
+    /*
+     * Disable interrupt temperarily to prevent glitch
+     * interrupt during switching IOMUXC pin selection
+     */
+    tmp_pe1 = WUU0->PE1;
+    tmp_pe2 = WUU0->PE2;
+    WUU0->PE1 = 0;
+    WUU0->PE2 = 0;
+
+    /* Go through wakeup pins list and reconfigure pinmux */
+    for (i = 0; i < ARRAY_SIZE(g_Wakeup_Pins); ++i)
+    {
+        uint32_t gpio_pin_id = 0;
+        int32_t gpio_pin_grp = 0, gpio_pin_index = 0;
+        RGPIO_Type *gpio_inst = NULL;
+
+        gpio_pin_id = g_Wakeup_Pins[i];
+        gpio_pin_grp = (gpio_pin_id >> 8) & 0xFFU;
+        gpio_pin_index = (gpio_pin_id & 0xFFU);
+        gpio_inst = RGPIO_GetBaseByInstance(gpio_pin_grp);
+
+        /*
+         * Deep Sleep wakeup via interrupt not WUU,
+         * so do nothing in here for Deep Sleep Mode
+         */
+        /* Enable interrupts for wakeup pin */
+        gpio_inst->ICR[gpio_pin_index] = gpioICRBackup[gpio_pin_grp][gpio_pin_index];
+
+        /*
+         * Disable interrupt temperarily to prevent glitch
+         * interrupt during switching IOMUXC pin selection
+         */
+        //DisableIRQ(WUU0_IRQn);
+
+        if (target_mode == LPM_PowerModeDeepSleep)
+        {
+            iomuxc_pcr0_iomuxcarry[gpio_pin_grp][gpio_pin_index] = iomuxBackup[gpio_pin_grp][gpio_pin_index];
+        }
+        else /* Power Down and Deep Power Down */
+        {
+            /* Reconfigure IOMUX as WUU0_Px, the mux value is 13 */
+            iomuxc_pcr0_iomuxcarry[gpio_pin_grp][gpio_pin_index] = IOMUXC0_PCR0_IOMUXCARRAY0_MUX(13);
+        }
+
+        //EnableIRQ(WUU0_IRQn);
+    }
+
+    WUU0->PE1 = tmp_pe1;
+    WUU0->PE2 = tmp_pe2;
+}
 
 static void APP_Suspend(void)
 {
     uint32_t i;
-    uint32_t setting;
-    uint32_t backupIndex;
     lpm_rtd_power_mode_e targetPowerMode = LPM_GetPowerMode();
-
-    backupIndex = 0;
 
     /* Backup PTA IOMUXC and GPIOA ICR registers then disable */
     for (i = 0; i <= 24; i++)
     {
-        iomuxBackup[backupIndex] = IOMUXC0->PCR0_IOMUXCARRAY0[i];
+        iomuxBackup[0][i] = IOMUXC0->PCR0_IOMUXCARRAY0[i];
+        gpioICRBackup[0][i] = GPIOA->ICR[i];
 
-        gpioICRBackup[backupIndex] = GPIOA->ICR[i];
-
-        
-
+        if (APP_Is_WakeupPin(0, i))
+        {
+            continue;
+        }
         /* Skip PTA20 ~ 23(JTAG pins) if run on flash */
-        if ((i != 19) && (i != 4) && (i != 6) && (i != 7) && (i != 20) && (i != 21) && (i != 22) && (i != 23) || !BOARD_IS_XIP_FLEXSPI0())
+        if ((i != 19) && (i != 20) && (i != 21) && (i != 22) && (i != 23) || !BOARD_IS_XIP_FLEXSPI0())
         {
-#if 0
-            if (targetPowerMode == LPM_PowerModeDeepSleep)
-            {
-                /*
-                 * Failed to wakeup cortex-M33 by SW8 button after set any pads of PTA/PTB to Analog/HiZ state when RTD in
-                 * deep sleep mode, so do nothing here for Deep Sleep Mode
-                 */
-            }
-            else
-#endif
-            {
-                // IOMUXC0->PCR0_IOMUXCARRAY0[i] = 0;
-                GPIOA->ICR[i] = 0; /* Disable interrupts */
-            }
-
+            GPIOA->ICR[i] = 0; /* Disable interrupts */
         }
-                /*
-         * If it's wakeup source, need to set as WUU0_P24
-         * Power Down/Deep Power Down wakeup through WUU and NMI pin
-         * Sleep/Deep Sleep wakeup via interrupt from M33 peripherals or external GPIO pins. WIC detects wakeup source.
-         */
-        if ((i==7) && (WUU0->PE1 & WUU_PE1_WUPE4_MASK))
-        {
-            if (targetPowerMode == LPM_PowerModeDeepSleep)
-            {
-                /*
-                 * Deep Sleep wakeup via interrupt not WUU,
-                 * so do nothing in here for Deep Sleep Mode
-                 */
-                /* enable interrupts for PTB12 */
-                GPIOA->ICR[i] = gpioICRBackup[backupIndex];
-            }
-            else
-            {
-                /*
-                 * Disable interrupt temperarily to prevent glitch
-                 * interrupt during switching IOMUXC pin selection
-                 */
-                setting = WUU0->PE1 & WUU_PE1_WUPE4_MASK;
-                WUU0->PE1 &= !WUU_PE1_WUPE4_MASK;
-
-                /* Change PTB12's function as WUU0_P24(IOMUXC_PTB12_WUU0_P24) */
-                IOMUXC0->PCR0_IOMUXCARRAY0[i] = IOMUXC0_PCR0_IOMUXCARRAY0_MUX(13);
-
-                WUU0->PE1 |= setting;
-
-                PRINTF("i==7) && (WUU0->PE1 & WUU_PE1_WUPE4_MASK)\r\n");
-            }
-        }
-        else
-            {
-                IOMUXC0->PCR0_IOMUXCARRAY0[i] = 0;
-            }
-        
-        backupIndex++;
+        IOMUXC0->PCR0_IOMUXCARRAY0[i] = 0;
     }
 
     /* Backup PTB IOMUXC and GPIOB ICR registers then disable */
     for (i = 0; i <= 15; i++)
     {
-        iomuxBackup[backupIndex] = IOMUXC0->PCR0_IOMUXCARRAY1[i];
+        iomuxBackup[1][i] = IOMUXC0->PCR0_IOMUXCARRAY1[i];
+        gpioICRBackup[1][i] = GPIOB->ICR[i];
 
-        gpioICRBackup[backupIndex] = GPIOB->ICR[i];
+        if (APP_Is_WakeupPin(1, i))
+        {
+            continue;
+        }
 
-#if 0
-        if (targetPowerMode == LPM_PowerModeDeepSleep)
-        {
-            /*
-             * Failed to wakeup cortext-M33 by SW8 button after disable any gpios's interrupt when RTD in Deep Sleep
-             * Mode, so do nothing here for Deep Sleep Mode
-             */
-        }
-        else
-#endif
-        {
-            GPIOB->ICR[i] = 0; /* disable interrupts */
-        }
+        GPIOB->ICR[i] = 0; /* disable interrupts */
 
         if ((i != 10) && (i != 11)) /* PTB10 and PTB11 is used as i2c function by upower */
         {
-#if 0
-            if (targetPowerMode == LPM_PowerModeDeepSleep)
-            {
-                /*
-                 * Failed to wakeup cortex-M33 by sw8 button after setup any pads of PTA/PTB to Analog/HiZ state when
-                 * RTD in Deep Sleep Mode, so do nothing here for Deep Sleep Mode
-                 */
-            }
-            else
-#endif
-            {
-                IOMUXC0->PCR0_IOMUXCARRAY1[i] = 0;
-            }
+            IOMUXC0->PCR0_IOMUXCARRAY1[i] = 0;
         }
-        backupIndex++;
     }
 
     /* Backup PTC IOMUXC and GPIOC ICR registers then disable */
     for (i = 0; i <= 23; i++)
     {
-        iomuxBackup[backupIndex] = IOMUXC0->PCR0_IOMUXCARRAY2[i];
+        iomuxBackup[2][i] = IOMUXC0->PCR0_IOMUXCARRAY2[i];
+        gpioICRBackup[2][i] = GPIOC->ICR[i];
 
-        gpioICRBackup[backupIndex] = GPIOC->ICR[i];
+        if (APP_Is_WakeupPin(2, i))
+        {
+            continue;
+        }
 
         GPIOC->ICR[i] = 0; /* disable interrupts */
 
@@ -271,9 +277,9 @@ static void APP_Suspend(void)
         {
             IOMUXC0->PCR0_IOMUXCARRAY2[i] = 0;
         }
-
-        backupIndex++;
     }
+
+    APP_ReconfigurePinForWakeup(targetPowerMode);
 
     /* Cleare any potential interrupts before enter Power Down */
     WUU0->PF = WUU0->PF;
@@ -285,32 +291,26 @@ static void APP_Suspend(void)
 static void APP_Resume(bool resume)
 {
     uint32_t i;
-    uint32_t backupIndex;
-
-    backupIndex = 0;
 
     /* Restore PTA IOMUXC and GPIOA ICR registers */
     for (i = 0; i <= 24; i++)
     {
-        IOMUXC0->PCR0_IOMUXCARRAY0[i] = iomuxBackup[backupIndex];
-        GPIOA->ICR[i]                 = gpioICRBackup[backupIndex];
-        backupIndex++;
+        IOMUXC0->PCR0_IOMUXCARRAY0[i] = iomuxBackup[0][i];
+        GPIOA->ICR[i]                 = gpioICRBackup[0][i];
     }
 
     /* Restore PTB IOMUXC and GPIOB ICR registers */
     for (i = 0; i <= 15; i++)
     {
-        IOMUXC0->PCR0_IOMUXCARRAY1[i] = iomuxBackup[backupIndex];
-        GPIOB->ICR[i]                 = gpioICRBackup[backupIndex];
-        backupIndex++;
+        IOMUXC0->PCR0_IOMUXCARRAY1[i] = iomuxBackup[1][i];
+        GPIOB->ICR[i]                 = gpioICRBackup[1][i];
     }
 
     /* Restore PTC IOMUXC and GPIOC ICR registers */
     for (i = 0; i <= 23; i++)
     {
-        IOMUXC0->PCR0_IOMUXCARRAY2[i] = iomuxBackup[backupIndex];
-        GPIOC->ICR[i]                 = gpioICRBackup[backupIndex];
-        backupIndex++;
+        IOMUXC0->PCR0_IOMUXCARRAY2[i] = iomuxBackup[2][i];
+        GPIOC->ICR[i]                 = gpioICRBackup[2][i];
     }
 
     EnableIRQ(WUU0_IRQn);
@@ -554,12 +554,33 @@ void APP_WUU0_IRQHandler(void)
         wakeup = true;
     }
 
+#if 0
     if (WUU_GetExternalWakeupPinFlag(WUU0, WUU_WAKEUP_PIN_IDX))
     {
         /* Woken up by external pin. */
         WUU_ClearExternalWakeupPinFlag(WUU0, WUU_WAKEUP_PIN_IDX);
         wakeup = true;
     }
+#else
+    int32_t i = 0;
+
+    /* Go through wakeup pins list and reconfigure pinmux */
+    for (i = 0; i < ARRAY_SIZE(g_Wakeup_Pins); ++i)
+    {
+        uint32_t gpio_pin_id = 0;
+        uint8_t wuu_index = 0;
+
+        gpio_pin_id = g_Wakeup_Pins[i];
+
+        wuu_index = APP_IO_GetWUUPinByIoId(gpio_pin_id);
+        if (WUU_GetExternalWakeupPinFlag(WUU0, wuu_index))
+        {
+            /* Woken up by external pin. */
+            WUU_ClearExternalWakeupPinFlag(WUU0, WUU_WAKEUP_PIN_IDX);
+            wakeup = true;
+        }
+    }
+#endif
 
     if (WUU_GetInternalWakeupModuleFlag(WUU0, WUU_MODULE_SYSTICK))
     {
@@ -602,8 +623,8 @@ static void APP_IRQDispatcher(IRQn_Type irq, void *param)
             APP_WUU0_IRQHandler();
             break;
         case GPIOA_INT0_IRQn:
-            if ((1U << GPIO_PIN_IDX(APP_PIN_VOLMINUS_BTN)) &
-                RGPIO_GetPinsInterruptFlags(RGPIO_GetBaseByInstance(GPIO_PORT_IDX(APP_PIN_VOLMINUS_BTN)),
+            if ((1U << GPIO_PIN_IDX(APP_WAKEUP_PIN_ID)) &
+                RGPIO_GetPinsInterruptFlags(RGPIO_GetBaseByInstance(GPIO_PORT_IDX(APP_WAKEUP_PIN_ID)),
                                             kRGPIO_InterruptOutput2))
             {
                 /* Flag will be cleared by app_srtm.c */
@@ -694,16 +715,16 @@ static app_wakeup_source_t APP_GetWakeupSource(void)
 }
 
 /* Get wakeup timeout and wakeup source. */
-static void APP_GetWakeupConfig(void)
+static void APP_GetWakeupConfig(app_wakeup_source_t *wakeup_source, uint32_t *wakeup_timeout)
 {
     /* Get wakeup source by user input. */
-    s_wakeupSource = APP_GetWakeupSource();
+    *wakeup_source = APP_GetWakeupSource();
 
-    if (kAPP_WakeupSourceLptmr == s_wakeupSource)
+    if (kAPP_WakeupSourceLptmr == *wakeup_source)
     {
         /* Wakeup source is LPTMR, user should input wakeup timeout value. */
-        s_wakeupTimeout = APP_GetWakeupTimeout();
-        PRINTF("Will wakeup in %d seconds.\r\n", s_wakeupTimeout);
+        *wakeup_timeout = APP_GetWakeupTimeout();
+        PRINTF("Will wakeup in %d seconds.\r\n", *wakeup_timeout);
     }
     else
     {
@@ -711,11 +732,11 @@ static void APP_GetWakeupConfig(void)
     }
 }
 
-static void APP_SetWakeupConfig(lpm_rtd_power_mode_e targetMode)
+static void APP_SetWakeupConfig(lpm_rtd_power_mode_e targetMode, app_wakeup_source_t wakeup_source, uint32_t wakeup_timeout)
 {
-    if (kAPP_WakeupSourceLptmr == s_wakeupSource)
+    if (kAPP_WakeupSourceLptmr == wakeup_source)
     {
-        LPTMR_SetTimerPeriod(LPTMR1, (1000UL * s_wakeupTimeout / 16U));
+        LPTMR_SetTimerPeriod(LPTMR1, (1000UL * wakeup_timeout / 16U));
         LPTMR_StartTimer(LPTMR1);
         LPTMR_EnableInterrupts(LPTMR1, kLPTMR_TimerInterruptEnable);
     }
@@ -724,7 +745,7 @@ static void APP_SetWakeupConfig(lpm_rtd_power_mode_e targetMode)
     /* If targetMode is PD/DPD, setup WUU. */
     if ((LPM_PowerModePowerDown == targetMode) || (LPM_PowerModeDeepPowerDown == targetMode))
     {
-        if (kAPP_WakeupSourceLptmr == s_wakeupSource)
+        if (kAPP_WakeupSourceLptmr == wakeup_source)
         {
             /* Set WUU LPTMR1 module wakeup source. */
             APP_SRTM_SetWakeupModule(WUU_MODULE_LPTMR1, kWUU_InternalModuleDMATrigger);
@@ -734,13 +755,13 @@ static void APP_SetWakeupConfig(lpm_rtd_power_mode_e targetMode)
         else
         {
             /* Set PORT and WUU wakeup pin. */
-            APP_SRTM_SetWakeupPin(APP_PIN_VOLMINUS_BTN, (uint16_t)WUU_WAKEUP_PIN_TYPE | 0x100);
+            APP_SRTM_SetWakeupPin(APP_WAKEUP_PIN_ID, (uint16_t)WUU_WAKEUP_PIN_TYPE | 0x100);
         }
     }
     else
     {
         /* Set PORT pin. */
-        if (kAPP_WakeupSourcePin == s_wakeupSource)
+        if (kAPP_WakeupSourcePin == wakeup_source)
         {
             uint16_t event = (uint16_t)WUU_WAKEUP_PIN_TYPE;
             /*
@@ -754,16 +775,16 @@ static void APP_SetWakeupConfig(lpm_rtd_power_mode_e targetMode)
                 PCC1->PCC_RGPIOA |= PCC1_PCC_RGPIOA_SSADO(1);
                 event |= 0x100; /* enable wakeup flag */
             }
-            APP_SRTM_SetWakeupPin(APP_PIN_VOLMINUS_BTN, event);
+            APP_SRTM_SetWakeupPin(APP_WAKEUP_PIN_ID, event);
         }
     }
 }
 
-static void APP_ClearWakeupConfig(lpm_rtd_power_mode_e targetMode)
+static void APP_ClearWakeupConfig(lpm_rtd_power_mode_e targetMode, app_wakeup_source_t wakeup_source)
 {
-    if (kAPP_WakeupSourcePin == s_wakeupSource)
+    if (kAPP_WakeupSourcePin == wakeup_source)
     {
-        APP_SRTM_SetWakeupPin(APP_PIN_VOLMINUS_BTN, (uint16_t)kWUU_ExternalPinDisable);
+        APP_SRTM_SetWakeupPin(APP_WAKEUP_PIN_ID, (uint16_t)kWUU_ExternalPinDisable);
     }
     else if ((LPM_PowerModePowerDown == targetMode) || (LPM_PowerModeDeepPowerDown == targetMode))
     {
@@ -875,11 +896,14 @@ void PowerModeSwitchTask(void *pvParameters)
             }
             else /* Idle task will handle the low power state. */
             {
-                APP_GetWakeupConfig();
-                APP_SetWakeupConfig(targetPowerMode);
-                xSemaphoreTake(s_wakeupSig, portMAX_DELAY);
+                uint32_t wakeupTimeout = 0;           /* Wakeup timeout. (Unit: Second) */
+                app_wakeup_source_t wakeupSource; /* Wakeup source.                 */
+
+                APP_GetWakeupConfig(&wakeupSource, &wakeupTimeout);
+                APP_SetWakeupConfig(targetPowerMode, wakeupSource, wakeupTimeout);
+                APP_SuspendTaskForWakeup();
                 /* The call might be blocked by SRTM dispatcher task. Must be called after power mode reset. */
-                APP_ClearWakeupConfig(targetPowerMode);
+                APP_ClearWakeupConfig(targetPowerMode, wakeupSource);
             }
         }
         else if ('W' == ch)

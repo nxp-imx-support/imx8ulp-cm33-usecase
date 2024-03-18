@@ -168,7 +168,7 @@ typedef enum
 #define APP_PIN_LSM6DSO_INT1     (APP_PIN_PTB13)
 #define APP_PIN_PTB14            (0x010E) /* PTB14, lsm6dso int2 interrupt */
 #define APP_PIN_LSM6DSO_INT2     (APP_PIN_PTB14)
-#define APP_PIN_PTA15            (0x0011) /* PTA15, gnss interrupt */
+#define APP_PIN_PTA15            (0x000F) /* PTA15, gnss interrupt */
 #define APP_PIN_GNSS_INT         (APP_PIN_PTA15)
 #define APP_PIN_PTA17            (0x0011) /* PTA17, nfc interrupt */
 #define APP_PIN_NFC_INT          (APP_PIN_PTA17)
@@ -232,6 +232,9 @@ void APP_SRTM_SetIRQHandler(app_irq_handler_t handler, void *param);
  * event[8]: LLWU wakeup enable
  */
 void APP_SRTM_SetWakeupPin(uint16_t ioId, uint16_t event);
+
+/* APP IO functions */
+uint8_t APP_IO_GetWUUPinByIoId(uint16_t io_id);
 
 /* Enable or disable LLWU wakeup module */
 void APP_SRTM_SetWakeupModule(uint32_t module, bool enable);

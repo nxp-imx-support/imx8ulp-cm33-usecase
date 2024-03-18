@@ -44,7 +44,7 @@ typedef struct
 #if defined(__cplusplus)
 extern "C" {
 #endif
-
+void APP_SuspendTaskForWakeup(void);
 #if defined(__cplusplus)
 }
 #endif

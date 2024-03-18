@@ -730,7 +730,7 @@ bool APP_IO_WhetherMatchIoId(uint16_t io_id, int32_t *io_table_idx)
     return false;
 }
 
-static uint8_t APP_IO_GetWUUPinByIoId(uint16_t io_id)
+uint8_t APP_IO_GetWUUPinByIoId(uint16_t io_id)
 {
     uint8_t i;
 
