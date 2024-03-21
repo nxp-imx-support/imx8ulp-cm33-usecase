@@ -545,6 +545,22 @@ void LPUART_Deinit(LPUART_Type *base)
     /* Disable the module. */
     base->CTRL = 0U;
 
+#ifdef DEBUG_CONSOLE_TRANSFER_NON_BLOCKING
+    {
+        /* In Non-blocking mode, IRQ will prevent M33 from entering WFI.
+         * So we need to disable IRQ here.
+         */
+        uint32_t instance = LPUART_GetInstance(base);
+
+    #if defined(FSL_FEATURE_LPUART_HAS_SEPARATE_RX_TX_IRQ) && FSL_FEATURE_LPUART_HAS_SEPARATE_RX_TX_IRQ
+        (void)DisableIRQ(s_lpuartRxIRQ[instance]);
+        (void)DisableIRQ(s_lpuartTxIRQ[instance]);
+    #else
+        (void)DisableIRQ(s_lpuartIRQ[instance]);
+    #endif
+    }
+#endif
+
 #if !(defined(FSL_SDK_DISABLE_DRIVER_CLOCK_CONTROL) && FSL_SDK_DISABLE_DRIVER_CLOCK_CONTROL)
     uint32_t instance = LPUART_GetInstance(base);
 

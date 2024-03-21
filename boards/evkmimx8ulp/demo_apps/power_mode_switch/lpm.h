@@ -103,6 +103,12 @@ bool LPM_Init(void);
 /* Deinitialize the Low Power Management */
 void LPM_Deinit(void);
 
+/* Go though task hooks for power mode change */
+bool LPM_HandleTaskHooks(lpm_rtd_power_mode_e from_mode, lpm_rtd_power_mode_e to_mode);
+
+/* Directly set mode to s_curMode */
+void LPM_SetPowerMode_Directly(lpm_rtd_power_mode_e mode);
+
 /* Save target mode to internal variable, not program hardware yet */
 bool LPM_SetPowerMode(lpm_rtd_power_mode_e mode);
 

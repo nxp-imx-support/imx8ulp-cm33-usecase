@@ -936,6 +936,9 @@ void PowerModeSwitchTask(void *pvParameters)
         targetPowerMode = (lpm_rtd_power_mode_e)(ch - 'A');
         if (targetPowerMode <= LPM_PowerModeDeepPowerDown)
         {
+            uint32_t wakeupTimeout = 0;           /* Wakeup timeout. (Unit: Second) */
+            app_wakeup_source_t wakeupSource; /* Wakeup source.                 */
+
             if (targetPowerMode == s_curMode)
             {
                 /* Same mode, skip it */
@@ -947,15 +950,33 @@ void PowerModeSwitchTask(void *pvParameters)
                        APP_GetRtdPwrModeName(targetPowerMode));
                 continue;
             }
+#ifdef DEBUG_CONSOLE_TRANSFER_NON_BLOCKING
+            /* In Non-blocking mode, IRQ will prevent M33 from entering WFI.
+             * So we will disable UART IRQ.
+             * And when we set Power Mode, system will try to enter low power, as lpuart will pending for input.
+             * Thus we should set Power Mode after getting wakeup configs.
+             */
+            if (!LPM_HandleTaskHooks(s_curMode, targetPowerMode))
+            {
+                LPM_HandleTaskHooks(targetPowerMode, s_curMode);
+                PRINTF("Some task doesn't allow to enter mode %s\r\n", s_modeNames[targetPowerMode]);
+            }
+            else
+            {
+                APP_GetWakeupConfig(&wakeupSource, &wakeupTimeout);
+                APP_SetWakeupConfig(targetPowerMode, wakeupSource, wakeupTimeout);
+                LPM_SetPowerMode_Directly(targetPowerMode);
+                xSemaphoreTake(s_wakeupSig, portMAX_DELAY);
+                /* The call might be blocked by SRTM dispatcher task. Must be called after power mode reset. */
+                APP_ClearWakeupConfig(targetPowerMode, wakeupSource);
+            }
+#else
             if (!LPM_SetPowerMode(targetPowerMode))
             {
                 PRINTF("Some task doesn't allow to enter mode %s\r\n", s_modeNames[targetPowerMode]);
             }
             else /* Idle task will handle the low power state. */
             {
-                uint32_t wakeupTimeout = 0;           /* Wakeup timeout. (Unit: Second) */
-                app_wakeup_source_t wakeupSource; /* Wakeup source.                 */
-
                 APP_GetWakeupConfig(&wakeupSource, &wakeupTimeout);
                 APP_SetWakeupConfig(targetPowerMode, wakeupSource, wakeupTimeout);
                 APP_CheckPedometerInterrupt();
@@ -963,6 +984,7 @@ void PowerModeSwitchTask(void *pvParameters)
                 /* The call might be blocked by SRTM dispatcher task. Must be called after power mode reset. */
                 APP_ClearWakeupConfig(targetPowerMode, wakeupSource);
             }
+#endif
         }
         else if ('W' == ch)
         {

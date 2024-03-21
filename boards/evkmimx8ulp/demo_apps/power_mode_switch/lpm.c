@@ -367,12 +367,12 @@ void LPM_Deinit(void)
     }
 }
 
-bool LPM_SetPowerMode(lpm_rtd_power_mode_e mode)
+bool LPM_HandleTaskHooks(lpm_rtd_power_mode_e from_mode, lpm_rtd_power_mode_e to_mode)
 {
-    lpm_power_mode_listener_t *l1, *l2;
+    lpm_power_mode_listener_t *l1;
     bool ret = true;
 
-    if (mode == s_curMode)
+    if (from_mode == to_mode)
     {
         return ret;
     }
@@ -386,7 +386,7 @@ bool LPM_SetPowerMode(lpm_rtd_power_mode_e mode)
             continue;
         }
 
-        if (!l1->callback(s_curMode, mode, l1->data))
+        if (!l1->callback(from_mode, to_mode, l1->data))
         {
             /* One stakeholder doesn't allow new mode */
             ret = false;
@@ -394,25 +394,35 @@ bool LPM_SetPowerMode(lpm_rtd_power_mode_e mode)
         }
     }
 
+    xSemaphoreGive(s_mutex);
+
+    return ret;
+}
+
+void LPM_SetPowerMode_Directly(lpm_rtd_power_mode_e mode)
+{
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    s_curMode = mode;
+    xSemaphoreGive(s_mutex);
+}
+
+bool LPM_SetPowerMode(lpm_rtd_power_mode_e mode)
+{
+    bool ret = true;
+
+    ret = LPM_HandleTaskHooks(s_curMode, mode);
+
     if (ret)
     {
+        xSemaphoreTake(s_mutex, portMAX_DELAY);
         s_curMode = mode;
+        xSemaphoreGive(s_mutex);
     }
     else
     {
         /* roll back the state change of previous listeners */
-        for (l2 = s_listenerHead; l2 != l1; l2 = l2->next)
-        {
-            if (l2->callback == NULL)
-            {
-                continue;
-            }
-
-            l2->callback(mode, s_curMode, l2->data);
-        }
+        LPM_HandleTaskHooks(mode, s_curMode);
     }
-
-    xSemaphoreGive(s_mutex);
 
     return ret;
 }
