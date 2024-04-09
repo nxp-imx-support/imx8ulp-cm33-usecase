@@ -178,6 +178,13 @@ static volatile bool s_debugConsoleReadWaitSemaphore;
         } while(false)
 #define DEBUG_CONSOLE_TAKE_BINARY_SEMAPHORE_BLOCKING(binary) ((void)xSemaphoreTake((binary), portMAX_DELAY))
 #define DEBUG_CONSOLE_GIVE_BINARY_SEMAPHORE_FROM_ISR(binary) ((void)xSemaphoreGiveFromISR((binary), NULL))
+#define DEBUG_CONSOLE_GIVE_BINARY_SEMAPHORE(binary) \
+{                                                 \
+        if (IS_RUNNING_IN_ISR() == 0U)            \
+        {                                         \
+            (void)xSemaphoreGive(binary);          \
+        }                                         \
+}
 
 #elif (DEBUG_CONSOLE_SYNCHRONIZATION_BM == DEBUG_CONSOLE_SYNCHRONIZATION_MODE)
 
@@ -202,9 +209,15 @@ static volatile bool s_debugConsoleReadWaitSemaphore;
     {                                                        \
         (binary) = true;                                       \
     } while(false)
+#define DEBUG_CONSOLE_GIVE_BINARY_SEMAPHORE(binary) \
+    do                                                       \
+    {                                                        \
+        (binary) = true;                                       \
+    } while(false)
 #else
 #define DEBUG_CONSOLE_TAKE_BINARY_SEMAPHORE_BLOCKING(binary)  (void)(binary)
 #define DEBUG_CONSOLE_GIVE_BINARY_SEMAPHORE_FROM_ISR(binary)  (void)(binary)
+#define DEBUG_CONSOLE_GIVE_BINARY_SEMAPHORE(binary)           (void)(binary)
 #endif /* DEBUG_CONSOLE_TRANSFER_NON_BLOCKING */
 /* clang-format on */
 
@@ -418,6 +431,21 @@ static void DbgConsole_SerialManagerRxCallback(void *callbackParam,
     }
 }
 #endif
+
+/*
+ * This function will cancel s_debugConsoleReadWaitSemaphore
+ * It is possible that in Non-Blocking mode, the menu task is blocked when taking s_debugConsoleReadWaitSemaphore.
+ * But the serial hander has already been freed before entering low power mode.
+ * In this case, we need to cancel the waiting when wakeup.
+ */
+void DbgConsole_CancelReadWait(void)
+{
+    /* Cancel reading, in case the semaphore is given when wakeup from low power task. */
+    SerialManager_CancelReading((serial_read_handle_t)&s_debugConsoleState.serialReadHandleBuffer[0]);
+
+    /* release s_debugConsoleReadWaitSemaphore from RX callback */
+    DEBUG_CONSOLE_GIVE_BINARY_SEMAPHORE(s_debugConsoleReadWaitSemaphore);
+}
 
 #endif
 
@@ -879,18 +907,24 @@ status_t DbgConsole_Init(uint8_t instance, uint32_t baudRate, serial_port_type_t
         assert(kStatus_SerialManager_Success == status);
 
 #if (DEBUG_CONSOLE_SYNCHRONIZATION_MODE == DEBUG_CONSOLE_SYNCHRONIZATION_FREERTOS)
+        if (NULL == s_debugConsoleReadSemaphore)
+        {
 #if configSUPPORT_STATIC_ALLOCATION
-        DEBUG_CONSOLE_CREATE_MUTEX_SEMAPHORE(s_debugConsoleReadSemaphore, &s_debugConsoleReadSemaphoreStatic);
+            DEBUG_CONSOLE_CREATE_MUTEX_SEMAPHORE(s_debugConsoleReadSemaphore, &s_debugConsoleReadSemaphoreStatic);
 #else
-        DEBUG_CONSOLE_CREATE_MUTEX_SEMAPHORE(s_debugConsoleReadSemaphore);
+            DEBUG_CONSOLE_CREATE_MUTEX_SEMAPHORE(s_debugConsoleReadSemaphore);
 #endif
+        }
 #endif
 #if (defined(DEBUG_CONSOLE_RX_ENABLE) && (DEBUG_CONSOLE_RX_ENABLE > 0U))
+        if (NULL == s_debugConsoleReadWaitSemaphore)
+        {
 #if (DEBUG_CONSOLE_SYNCHRONIZATION_MODE == DEBUG_CONSOLE_SYNCHRONIZATION_FREERTOS) && configSUPPORT_STATIC_ALLOCATION
-        DEBUG_CONSOLE_CREATE_BINARY_SEMAPHORE(s_debugConsoleReadWaitSemaphore, &s_debugConsoleReadWaitSemaphoreStatic);
+            DEBUG_CONSOLE_CREATE_BINARY_SEMAPHORE(s_debugConsoleReadWaitSemaphore, &s_debugConsoleReadWaitSemaphoreStatic);
 #else
-        DEBUG_CONSOLE_CREATE_BINARY_SEMAPHORE(s_debugConsoleReadWaitSemaphore);
+            DEBUG_CONSOLE_CREATE_BINARY_SEMAPHORE(s_debugConsoleReadWaitSemaphore);
 #endif
+        }
 #endif
 
         {
@@ -984,7 +1018,9 @@ status_t DbgConsole_Deinit(void)
         }
     }
 #if (defined(DEBUG_CONSOLE_RX_ENABLE) && (DEBUG_CONSOLE_RX_ENABLE > 0U))
+#if !defined(DEBUG_CONSOLE_TRANSFER_NON_BLOCKING)
     DEBUG_CONSOLE_DESTROY_BINARY_SEMAPHORE(s_debugConsoleReadWaitSemaphore);
+#endif
 #endif
 #if (DEBUG_CONSOLE_SYNCHRONIZATION_MODE == DEBUG_CONSOLE_SYNCHRONIZATION_FREERTOS)
     DEBUG_CONSOLE_DESTROY_MUTEX_SEMAPHORE(s_debugConsoleReadSemaphore);

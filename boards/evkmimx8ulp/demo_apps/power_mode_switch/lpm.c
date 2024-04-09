@@ -21,6 +21,7 @@
 #include "fsl_debug_console.h"
 #include "fsl_cache.h"
 #include "app_srtm.h"
+#include "power_mode_switch.h"
 
 /*******************************************************************************
  * Definitions
@@ -30,6 +31,8 @@
 
 #define FLEXSPI_LUT_KEY_VAL (0x5AF05AF0UL)
 #define CUSTOM_LUT_LENGTH   (64U)
+
+#define APP_LPM_MODE_SET_TASK_PRIO    (2U)
 
 void SysTick_Handler(void);
 void LPM_SwitchToFROClk(void);
@@ -73,6 +76,7 @@ typedef struct _lpm_nvic_context
 } lpm_nvic_context_t;
 
 lpm_rtd_power_mode_e s_curMode;
+lpm_rtd_power_mode_e s_targetMode;
 
 /* Save latest address of __vecotr_table */
 volatile uint32_t s_vector_table_addr;
@@ -85,9 +89,12 @@ volatile uint32_t s_control;
 static SemaphoreHandle_t s_mutex;
 #if configSUPPORT_STATIC_ALLOCATION
 static StaticSemaphore_t s_staticMutex;
+static StaticSemaphore_t s_staticLpmModeMutex;
 #endif
 static lpm_power_mode_listener_t *s_listenerHead;
 static lpm_power_mode_listener_t *s_listenerTail;
+
+static SemaphoreHandle_t s_lpm_mode_sema;
 
 /* RTD Power Down Power mode */
 static ps_rtd_pwr_mode_cfgs_t rtd_pwr_mode_cfgs = {
@@ -339,6 +346,39 @@ uint32_t tmp_stack[0x100];
 extern void xPortSysTickHandler(void);
 extern void __vector_table(void);
 
+/* The LPM task will receive signal to set power mode */
+static void LPM_Mode_Set_Task(void *pvParameters)
+{
+    while (true)
+    {
+        /* Wait for signal to set power mode */
+        if (pdTRUE == xSemaphoreTake(s_lpm_mode_sema, portMAX_DELAY))
+        {
+            lpm_rtd_power_mode_e targetPowerMode = (lpm_rtd_power_mode_e)*(int32_t *)pvParameters;
+
+            /* Set wakeup GPIO source, Idle task will handle the low power state. */
+            PRINTF("Press %s to wake up from power mode %d.\r\n", APP_WAKEUP_BUTTON_NAME, targetPowerMode);
+            FLUSH();
+            /* Put M core to power down state */
+            if (LPM_SetPowerMode_WithHooks(LPM_PowerModePowerDown))
+            {
+                APP_SRTM_SetWakeupPin(APP_WAKEUP_PIN_ID, (uint16_t)WUU_WAKEUP_PIN_TYPE | 0x100);
+                APP_SuspendTaskForWakeup();
+                /* The call might be blocked by SRTM dispatcher task. Must be called after power mode reset. */
+                APP_ClearWakeupConfig(targetPowerMode, kAPP_WakeupSourcePin);
+                LPM_SetPowerMode_Directly(LPM_PowerModeActive);
+#if defined(DEBUG_CONSOLE_TRANSFER_NON_BLOCKING)
+                DbgConsole_CancelReadWait();
+#endif
+            }
+            else
+            {
+                PRINTF("Some tasks doesn't allow M core to enter Power Down mode\r\n");
+            }
+        }
+    }
+}
+
 bool LPM_Init(void)
 {
 #if configSUPPORT_STATIC_ALLOCATION
@@ -352,8 +392,25 @@ bool LPM_Init(void)
         return false;
     }
 
+#if configSUPPORT_STATIC_ALLOCATION
+    s_lpm_mode_sema = xSemaphoreCreateBinaryStatic(&s_staticLpmModeMutex);
+#else
+    s_lpm_mode_sema = xSemaphoreCreateBinary();
+#endif
+
+    if (s_lpm_mode_sema == NULL)
+    {
+        return false;
+    }
+
     s_listenerHead = s_listenerTail = NULL;
     s_curMode                       = LPM_PowerModeActive;
+
+    if (pdPASS != xTaskCreate(LPM_Mode_Set_Task, "LPM Mode Set Task", 256U, &s_targetMode, APP_LPM_MODE_SET_TASK_PRIO, NULL))
+    {
+        PRINTF("LPM Task creation failed!.\r\n");
+        return kStatus_Fail;
+    }
 
     return true;
 }
@@ -399,6 +456,42 @@ bool LPM_HandleTaskHooks(lpm_rtd_power_mode_e from_mode, lpm_rtd_power_mode_e to
     return ret;
 }
 
+bool LPM_SetPowerMode_FromTask(lpm_rtd_power_mode_e mode)
+{
+    bool ret_directly = false;
+
+    if (LPM_PowerModeActive == mode)
+    {
+        return false;
+    }
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    if (s_curMode == mode)
+    {
+        ret_directly = true;
+    }
+    else
+    {
+        s_targetMode = mode;
+    }
+    xSemaphoreGive(s_mutex);
+
+    if (true == ret_directly)
+    {
+        return true;
+    }
+    else
+    {
+        if (xSemaphoreGive(s_lpm_mode_sema) == pdTRUE)
+        {
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+}
+
 void LPM_SetPowerMode_Directly(lpm_rtd_power_mode_e mode)
 {
     xSemaphoreTake(s_mutex, portMAX_DELAY);
@@ -406,7 +499,7 @@ void LPM_SetPowerMode_Directly(lpm_rtd_power_mode_e mode)
     xSemaphoreGive(s_mutex);
 }
 
-bool LPM_SetPowerMode(lpm_rtd_power_mode_e mode)
+bool LPM_SetPowerMode_WithHooks(lpm_rtd_power_mode_e mode)
 {
     bool ret = true;
 

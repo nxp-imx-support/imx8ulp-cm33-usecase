@@ -69,17 +69,20 @@ static inline int DbgConsole_Disabled(void)
 #define SCANF(...)   DbgConsole_Disabled()
 #define PUTCHAR(...) DbgConsole_Disabled()
 #define GETCHAR()    DbgConsole_Disabled()
+#define FLUSH()      DbgConsole_Disabled()
 #elif SDK_DEBUGCONSOLE == DEBUGCONSOLE_REDIRECT_TO_SDK /* Select printf, scanf, putchar, getchar of SDK version. */
 #define PRINTF  DbgConsole_Printf
 #define SCANF   DbgConsole_Scanf
 #define PUTCHAR DbgConsole_Putchar
 #define GETCHAR DbgConsole_Getchar
+#define FLUSH   DbgConsole_Flush
 #elif SDK_DEBUGCONSOLE == DEBUGCONSOLE_REDIRECT_TO_TOOLCHAIN /* Select printf, scanf, putchar, getchar of toolchain. \ \
                                                               */
 #define PRINTF  printf
 #define SCANF   scanf
 #define PUTCHAR putchar
 #define GETCHAR getchar
+#define FLUSH   flush
 #endif /* SDK_DEBUGCONSOLE */
 
 /*******************************************************************************
@@ -302,6 +305,9 @@ status_t DbgConsole_Flush(void);
  * @return Indicates get char was successful or not.
  */
 status_t DbgConsole_TryGetchar(char *ch);
+
+void DbgConsole_CancelReadWait(void);
+
 #endif
 
 #endif /* SDK_DEBUGCONSOLE */

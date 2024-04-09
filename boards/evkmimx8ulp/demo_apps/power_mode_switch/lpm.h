@@ -109,8 +109,11 @@ bool LPM_HandleTaskHooks(lpm_rtd_power_mode_e from_mode, lpm_rtd_power_mode_e to
 /* Directly set mode to s_curMode */
 void LPM_SetPowerMode_Directly(lpm_rtd_power_mode_e mode);
 
+/* Set power mode in lpm task */
+bool LPM_SetPowerMode_FromTask(lpm_rtd_power_mode_e mode);
+
 /* Save target mode to internal variable, not program hardware yet */
-bool LPM_SetPowerMode(lpm_rtd_power_mode_e mode);
+bool LPM_SetPowerMode_WithHooks(lpm_rtd_power_mode_e mode);
 
 /* Get low power mode previously set.
  */

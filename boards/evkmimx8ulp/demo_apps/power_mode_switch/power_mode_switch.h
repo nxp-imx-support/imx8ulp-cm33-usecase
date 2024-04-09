@@ -38,6 +38,12 @@ typedef struct
     allow_combi_e allow_combi; /* Allow Combination */
 } mode_combi_t;
 
+typedef enum _app_wakeup_source
+{
+    kAPP_WakeupSourceLptmr, /*!< Wakeup by LPTMR.        */
+    kAPP_WakeupSourcePin    /*!< Wakeup by external pin. */
+} app_wakeup_source_t;
+
 /*******************************************************************************
  * API
  ******************************************************************************/
@@ -45,6 +51,7 @@ typedef struct
 extern "C" {
 #endif
 void APP_SuspendTaskForWakeup(void);
+void APP_ClearWakeupConfig(lpm_rtd_power_mode_e targetMode, app_wakeup_source_t wakeup_source);
 #if defined(__cplusplus)
 }
 #endif

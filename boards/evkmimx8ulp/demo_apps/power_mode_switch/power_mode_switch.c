@@ -35,12 +35,6 @@
 #define APP_DEBUG_UART_BAUDRATE       (115200U)             /* Debug console baud rate. */
 #define APP_DEBUG_UART_DEFAULT_CLKSRC kCLOCK_IpSrcSircAsync /* SCG SIRC clock. */
 
-typedef enum _app_wakeup_source
-{
-    kAPP_WakeupSourceLptmr, /*!< Wakeup by LPTMR.        */
-    kAPP_WakeupSourcePin    /*!< Wakeup by external pin. */
-} app_wakeup_source_t;
-
 /*******************************************************************************
  * Function Prototypes
  ******************************************************************************/
@@ -836,7 +830,7 @@ static void APP_SetWakeupConfig(lpm_rtd_power_mode_e targetMode, app_wakeup_sour
     }
 }
 
-static void APP_ClearWakeupConfig(lpm_rtd_power_mode_e targetMode, app_wakeup_source_t wakeup_source)
+void APP_ClearWakeupConfig(lpm_rtd_power_mode_e targetMode, app_wakeup_source_t wakeup_source)
 {
     if (kAPP_WakeupSourcePin == wakeup_source)
     {
@@ -966,6 +960,7 @@ void PowerModeSwitchTask(void *pvParameters)
                 APP_GetWakeupConfig(&wakeupSource, &wakeupTimeout);
                 APP_SetWakeupConfig(targetPowerMode, wakeupSource, wakeupTimeout);
                 LPM_SetPowerMode_Directly(targetPowerMode);
+                FLUSH();
                 xSemaphoreTake(s_wakeupSig, portMAX_DELAY);
                 /* The call might be blocked by SRTM dispatcher task. Must be called after power mode reset. */
                 APP_ClearWakeupConfig(targetPowerMode, wakeupSource);

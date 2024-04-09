@@ -43,6 +43,8 @@
 #include "fsl_adapter_gpio.h"
 #include "max_alg.h"
 #include "max_cfg.h"
+#include "lpm.h"
+#include "power_mode_switch.h"
 
 /*******************************************************************************
  * Definitions
@@ -984,6 +986,35 @@ static void APP_SRTM_SetLPAV(srtm_dispatcher_t dispatcher, void *param1, void *p
     }
 }
 
+static void APP_SRTM_SetMcore(srtm_dispatcher_t dispatcher, void *param1, void *param2)
+{
+    lpm_rtd_power_mode_e state = (lpm_rtd_power_mode_e)(uint32_t)param1;
+
+    switch (state)
+    {
+    case LPM_PowerModeActive:
+        /* FIXME: Restore sensor settings */
+        break;
+    case LPM_PowerModeWait:
+        break;
+    case LPM_PowerModeStop:
+        break;
+    case LPM_PowerModeSleep:
+        break;
+    case LPM_PowerModeDeepSleep:
+        break;
+    case LPM_PowerModePowerDown:
+        {
+            LPM_SetPowerMode_FromTask(LPM_PowerModePowerDown);
+        }
+        break;
+    case LPM_PowerModeDeepPowerDown:
+        break;
+    default:
+        break;
+    }
+}
+
 void APP_RebootCA35(void)
 {
     srtm_procedure_t proc = SRTM_Procedure_Create(APP_SRTM_ControlCA35, (void *)APP_SRTM_StateReboot, NULL);
@@ -1180,7 +1211,7 @@ static void APP_CheckMaxSensorInterrupt(void)
          * temperature sensor. This bit clears automatically back to zero at the conclusion of the temperature
          * reading when the bit is set to one.
          */
- 
+
         /* If heart rate and spo2 is not ON, we need to turn off power. */
         if (!max_sensor.stateEnabled)
         {
@@ -1255,6 +1286,11 @@ static void APP_HandleGPIOHander(void *param)
             /* Wakeup A Core(CA35) when A Core is in Power Down Mode */
             //APP_WakeupACore();
             APP_SRTM_WakeupCA35();
+
+            srtm_procedure_t proc = SRTM_Procedure_Create(APP_SRTM_SetMcore, (void *)LPM_PowerModeActive, NULL);
+
+            assert(proc);
+            SRTM_Dispatcher_PostProc(disp, proc);
         }
         if (suspendContext.io.data[io_idx].timer)
         {
@@ -2670,7 +2706,7 @@ int32_t MU0_A_IRQHandler(void)
         }
         else
         {
-            /* Relase A Core */
+            /* Release A Core */
             MU_BootOtherCore(
                 MU0_MUA,
                 (mu_core_boot_mode_t)0); /* Delete the code after linux supported sending suspend rpmsg to M Core */
@@ -2680,6 +2716,12 @@ int32_t MU0_A_IRQHandler(void)
              *  otherwise APD side is responsible to control them in DPD mode
              */
             srtm_procedure_t proc = SRTM_Procedure_Create(APP_SRTM_SetLPAV, (void *)AD_PD, NULL);
+
+            assert(proc);
+            SRTM_Dispatcher_PostProc(disp, proc);
+
+            /* Put M core to Power Down when A core enters suspend */
+            proc = SRTM_Procedure_Create(APP_SRTM_SetMcore, (void *)LPM_PowerModePowerDown, NULL);
 
             assert(proc);
             SRTM_Dispatcher_PostProc(disp, proc);
@@ -2768,7 +2810,7 @@ static srtm_status_t APP_SRTM_LfclEventHandler(
     {
         case SRTM_Lfcl_Event_ShutdownReq: /* Notify M Core that Application Domain will enter Deep Power Down Mode */
             AD_WillEnterMode = AD_DPD;
-            /* Relase A Core */
+            /* Release A Core */
             MU_BootOtherCore(MU0_MUA, (mu_core_boot_mode_t)0);
             PRINTF("\r\nAD will enter Deep Power Down Mode\r\n");
             break;
@@ -2776,7 +2818,7 @@ static srtm_status_t APP_SRTM_LfclEventHandler(
             AD_WillEnterMode = AD_PD;
             /* Save context(such as: MU0_MUA[RCR]) */
             rtdCtxSave();
-            /* Relase A Core */
+            /* Release A Core */
             MU_BootOtherCore(MU0_MUA, (mu_core_boot_mode_t)0);
             PRINTF("\r\nAD will enter Power Down Mode\r\n");
             break;
@@ -3133,7 +3175,7 @@ static srtm_status_t APP_SRTM_I2C_Write(srtm_i2c_adapter_t adapter,
     status_t retVal   = kStatus_Fail;
     uint32_t needStop = (flags & SRTM_I2C_FLAG_NEED_STOP) ? kLPI2C_TransferDefaultFlag : kLPI2C_TransferNoStopFlag;
 
-    needStop |= ((flags & SRTM_I2C_FLAG_NO_START) ? kLPI2C_TransferNoStartFlag : 0);
+	needStop |= ((flags & SRTM_I2C_FLAG_NO_START) ? kLPI2C_TransferNoStartFlag : 0);
     switch (type)
     {
         case SRTM_I2C_TYPE_LPI2C:
@@ -3156,7 +3198,7 @@ static srtm_status_t APP_SRTM_I2C_Read(srtm_i2c_adapter_t adapter,
     status_t retVal   = kStatus_Fail;
     uint32_t needStop = (flags & SRTM_I2C_FLAG_NEED_STOP) ? kLPI2C_TransferDefaultFlag : kLPI2C_TransferNoStopFlag;
 
-    needStop |= ((flags & SRTM_I2C_FLAG_NO_START) ? kLPI2C_TransferNoStartFlag : 0);
+	needStop |= ((flags & SRTM_I2C_FLAG_NO_START) ? kLPI2C_TransferNoStartFlag : 0);
     switch (type)
     {
         case SRTM_I2C_TYPE_LPI2C:
