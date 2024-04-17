@@ -2502,7 +2502,7 @@ static void APP_SRTM_IO_TimerCallback(TimerHandle_t xTimer)
         }
 
         /* Restore pin detection interrupt */
-        APP_IO_ConfInput(io_idx, suspendContext.io.data[io_idx].event, false);
+        APP_IO_ConfInput(io_id, suspendContext.io.data[io_idx].event, false);
     }
     else
     {
@@ -3240,12 +3240,12 @@ static void APP_SRTM_DoSetWakeupPin(srtm_dispatcher_t dispatcher, void *param1, 
     {
         if (wuuPinModeEvents[pinMode] != SRTM_IoEventNone)
         {
-            APP_IO_ConfInput(io_idx, wuuPinModeEvents[pinMode], wakeup);
+            APP_IO_ConfInput(io_id, wuuPinModeEvents[pinMode], wakeup);
         }
         else
         {
             /* Restore CA35 settings */
-            APP_IO_ConfInput(io_idx, suspendContext.io.data[io_idx].event, suspendContext.io.data[io_idx].wakeup);
+            APP_IO_ConfInput(io_id, suspendContext.io.data[io_idx].event, suspendContext.io.data[io_idx].wakeup);
         }
     }
 }
@@ -3279,6 +3279,13 @@ void APP_ShowPedometer(void)
     {
         PRINTF("Error reading Pedometer Count\r\n");
     }
+}
+
+/* Check Podemeter values */
+void APP_CheckPedometerInterrupt(void)
+{
+    lsm_emb_func_status_t val;
+    LSM_GetVal(&lsmHandle, LSM_EMB_FUNC_STATUS_REG, (uint8_t *)&val, LSM_EMBEDDED_FUNC_BANK, LSM_USER_BANK);
 }
 
 void APP_ShowTemperature(void)

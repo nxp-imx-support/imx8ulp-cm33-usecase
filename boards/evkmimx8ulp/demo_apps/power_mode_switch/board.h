@@ -73,6 +73,7 @@
 #else
     #error "Invalid Wakeup Button ID!"
 #endif
+#define WUU_WAKEUP_LSMPIN_IDX     (25U) 
 #define WUU_WAKEUP_PIN_TYPE    kWUU_ExternalPinFallingEdge
 
 #define BOARD_WAKEUP_PINS_LIST \

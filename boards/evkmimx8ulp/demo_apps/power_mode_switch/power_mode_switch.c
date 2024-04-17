@@ -46,6 +46,7 @@ typedef enum _app_wakeup_source
  ******************************************************************************/
 extern void APP_PowerPreSwitchHook(lpm_rtd_power_mode_e targetMode);
 extern void APP_PowerPostSwitchHook(lpm_rtd_power_mode_e targetMode, bool result);
+extern void APP_CheckPedometerInterrupt(void);
 extern void APP_SRTM_WakeupCA35(void);
 extern void APP_RebootCA35(void);
 extern void APP_ShutdownCA35(void);
@@ -212,6 +213,7 @@ static void APP_ReconfigurePinForWakeup(lpm_rtd_power_mode_e target_mode)
 static void APP_Suspend(void)
 {
     uint32_t i;
+    uint32_t setting;
     lpm_rtd_power_mode_e targetPowerMode = LPM_GetPowerMode();
 
     /* Backup PTA IOMUXC and GPIOA ICR registers then disable */
@@ -244,8 +246,34 @@ static void APP_Suspend(void)
         }
 
         GPIOB->ICR[i] = 0; /* disable interrupts */
+        if ((i == 13) && (WUU0->PE2 & WUU_PE2_WUPE25_MASK))
+        {
+            if (targetPowerMode == LPM_PowerModeDeepSleep)
+            {
+                /*
+                 * Deep Sleep wakeup via interrupt not WUU,
+                 * so do nothing in here for Deep Sleep Mode
+                 */
+                /* enable interrupts for PTB12 */
+                GPIOB->ICR[i] = gpioICRBackup[1][i];
+            }
+            else
+            {
+                /*
+                 * Disable interrupt temperarily to prevent glitch
+                 * interrupt during switching IOMUXC pin selection
+                 */
+                setting = WUU0->PE2 & WUU_PE2_WUPE25_MASK;
+                WUU0->PE2 &= !WUU_PE2_WUPE25_MASK;
 
-        if ((i != 10) && (i != 11)) /* PTB10 and PTB11 is used as i2c function by upower */
+                /* Change PTB12's function as WUU0_P24(IOMUXC_PTB12_WUU0_P24) */
+                IOMUXC0->PCR0_IOMUXCARRAY1[i] = IOMUXC0_PCR0_IOMUXCARRAY1_MUX(13);
+
+                WUU0->PE2 |= setting;
+
+            }            
+        }
+        else if ((i != 10) && (i != 11)) /* PTB10 and PTB11 is used as i2c function by upower */
         {
             IOMUXC0->PCR0_IOMUXCARRAY1[i] = 0;
         }
@@ -324,7 +352,7 @@ void APP_DisableGPIO(void)
         }
         
         /* Skip PTA20 ~ 23(JTAG pins) if run on flash */
-        if ((i != 20) && (i != 21) && (i != 22) && (i != 23) && (i != 4) && (i != 6) && (i != 7) || !BOARD_IS_XIP_FLEXSPI0())
+        if ((i != 20) && (i != 21) && (i != 22) && (i != 23) || !BOARD_IS_XIP_FLEXSPI0())
         {
             IOMUXC0->PCR0_IOMUXCARRAY0[i] = 0; /* Set to Analog/HiZ state */
         }
@@ -395,6 +423,18 @@ void APP_PowerPreSwitchHook(lpm_rtd_power_mode_e targetMode)
                 WUU0->PE1 |= setting;
             }
 
+            if ((WUU0->PE2 & WUU_PE2_WUPE25_MASK) != 0)
+            {
+                /* Disable interrupt temperarily to prevent glitch
+                 * interrupt during switching IOMUXC pin selection
+                 */
+                setting = WUU0->PE2 & WUU_PE2_WUPE25_MASK;
+                WUU0->PE2 &= !WUU_PE2_WUPE25_MASK;
+
+                IOMUXC0->PCR0_IOMUXCARRAY1[13] = IOMUXC0_PCR0_IOMUXCARRAY1_MUX(13);
+
+                WUU0->PE2 |= setting;
+            }
             /* Cleare any potential interrupts before enter Deep Power Down */
             WUU0->PF = WUU0->PF;
         }
@@ -565,13 +605,24 @@ void APP_WUU0_IRQHandler(void)
         gpio_pin_id = g_Wakeup_Pins[i];
 
         wuu_index = APP_IO_GetWUUPinByIoId(gpio_pin_id);
-        if (WUU_GetExternalWakeupPinFlag(WUU0, wuu_index))
+        if (wuu_index == WUU_WAKEUP_LSMPIN_IDX)
+        {
+            if (WUU_GetExternalWakeupPinFlag(WUU0, wuu_index))
+                {
+                    /* Woken up by external pin. */
+                    WUU_ClearExternalWakeupPinFlag(WUU0, wuu_index);
+                    APP_SRTM_WakeupCA35();
+                    wakeup = true;
+                }
+        }
+        else if (WUU_GetExternalWakeupPinFlag(WUU0, wuu_index))
         {
             /* Woken up by external pin. */
-            WUU_ClearExternalWakeupPinFlag(WUU0, WUU_WAKEUP_PIN_IDX);
+            WUU_ClearExternalWakeupPinFlag(WUU0, wuu_index);
             wakeup = true;
         }
     }
+
 #endif
 
     if (WUU_GetInternalWakeupModuleFlag(WUU0, WUU_MODULE_SYSTICK))
@@ -618,6 +669,14 @@ static void APP_IRQDispatcher(IRQn_Type irq, void *param)
             if ((1U << GPIO_PIN_IDX(APP_WAKEUP_PIN_ID)) &
                 RGPIO_GetPinsInterruptFlags(RGPIO_GetBaseByInstance(GPIO_PORT_IDX(APP_WAKEUP_PIN_ID)),
                                             kRGPIO_InterruptOutput2))
+            {
+                /* Flag will be cleared by app_srtm.c */
+                xSemaphoreGiveFromISR(s_wakeupSig, NULL);
+                portYIELD_FROM_ISR(pdTRUE);
+            }
+        case GPIOB_INT0_IRQn:
+            if ((1U << GPIO_PIN_IDX(APP_PIN_LSM6DSO_INT1)) &
+                RGPIO_GetPinsInterruptFlags(RGPIO_GetBaseByInstance(GPIO_PORT_IDX(APP_PIN_LSM6DSO_INT1)), kRGPIO_InterruptOutput2))
             {
                 /* Flag will be cleared by app_srtm.c */
                 xSemaphoreGiveFromISR(s_wakeupSig, NULL);
@@ -747,6 +806,7 @@ static void APP_SetWakeupConfig(lpm_rtd_power_mode_e targetMode, app_wakeup_sour
         else
         {
             /* Set PORT and WUU wakeup pin. */
+            APP_SRTM_SetWakeupPin(APP_PIN_LSM6DSO_INT1, (uint16_t)kWUU_ExternalPinRisingEdge | 0x100);
             APP_SRTM_SetWakeupPin(APP_WAKEUP_PIN_ID, (uint16_t)WUU_WAKEUP_PIN_TYPE | 0x100);
         }
     }
@@ -765,8 +825,12 @@ static void APP_SetWakeupConfig(lpm_rtd_power_mode_e targetMode, app_wakeup_sour
             {
                 PCC1->PCC_RGPIOA &= ~PCC1_PCC_RGPIOA_SSADO_MASK;
                 PCC1->PCC_RGPIOA |= PCC1_PCC_RGPIOA_SSADO(1);
+
+                PCC1->PCC_RGPIOB &= ~PCC1_PCC_RGPIOB_SSADO_MASK;
+                PCC1->PCC_RGPIOB |= PCC1_PCC_RGPIOB_SSADO(1);
                 event |= 0x100; /* enable wakeup flag */
             }
+            APP_SRTM_SetWakeupPin(APP_PIN_LSM6DSO_INT1, (uint16_t)kWUU_ExternalPinRisingEdge | 0x100);
             APP_SRTM_SetWakeupPin(APP_WAKEUP_PIN_ID, event);
         }
     }
@@ -776,6 +840,7 @@ static void APP_ClearWakeupConfig(lpm_rtd_power_mode_e targetMode, app_wakeup_so
 {
     if (kAPP_WakeupSourcePin == wakeup_source)
     {
+        APP_SRTM_SetWakeupPin(APP_PIN_LSM6DSO_INT1, (uint16_t)kWUU_ExternalPinDisable);
         APP_SRTM_SetWakeupPin(APP_WAKEUP_PIN_ID, (uint16_t)kWUU_ExternalPinDisable);
     }
     else if ((LPM_PowerModePowerDown == targetMode) || (LPM_PowerModeDeepPowerDown == targetMode))
@@ -893,6 +958,7 @@ void PowerModeSwitchTask(void *pvParameters)
 
                 APP_GetWakeupConfig(&wakeupSource, &wakeupTimeout);
                 APP_SetWakeupConfig(targetPowerMode, wakeupSource, wakeupTimeout);
+                APP_CheckPedometerInterrupt();
                 APP_SuspendTaskForWakeup();
                 /* The call might be blocked by SRTM dispatcher task. Must be called after power mode reset. */
                 APP_ClearWakeupConfig(targetPowerMode, wakeupSource);
