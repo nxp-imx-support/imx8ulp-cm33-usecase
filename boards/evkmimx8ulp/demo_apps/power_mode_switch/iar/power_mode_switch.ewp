@@ -4581,6 +4581,15 @@
             </file>
         </group>
         <group>
+            <name>pca6416a</name>
+            <file>
+                <name>$PROJ_DIR$\..\..\..\..\..\components\pca6416a\fsl_pca6416a.c</name>
+            </file>
+            <file>
+                <name>$PROJ_DIR$\..\..\..\..\..\components\pca6416a\fsl_pca6416a.h</name>
+            </file>
+        </group>
+        <group>
             <name>pwm</name>
             <file>
                 <name>$PROJ_DIR$\..\..\..\..\..\components\pwm\fsl_adapter_pwm.h</name>
@@ -4623,18 +4632,6 @@
             </file>
             <file>
                 <name>$PROJ_DIR$\..\..\..\..\..\components\uart\fsl_adapter_uart.h</name>
-            </file>
-        </group>
-    </group>
-    <group>
-        <name>components</name>
-        <group>
-            <name>pca6416a</name>
-            <file>
-                <name>$PROJ_DIR$\..\..\..\..\..\components\pca6416a\fsl_pca6416a.c</name>
-            </file>
-            <file>
-                <name>$PROJ_DIR$\..\..\..\..\..\components\pca6416a\fsl_pca6416a.h</name>
             </file>
         </group>
     </group>

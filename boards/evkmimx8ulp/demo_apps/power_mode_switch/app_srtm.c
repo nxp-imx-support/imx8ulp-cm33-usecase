@@ -275,6 +275,7 @@ static srtm_status_t APP_SRTM_Sensor_SetPollDelay(srtm_sensor_adapter_t adapter,
                                                   srtm_sensor_type_t type,
                                                   uint8_t index,
                                                   uint32_t millisec);
+static srtm_status_t APP_SRTM_Max_Sensor_Init(void);
 
 static struct _srtm_sensor_adapter sensorAdapter =
 {
@@ -320,6 +321,8 @@ static TimerHandle_t rtcAlarmEventTimer; /* It is used to send alarm event to ac
                                             mode) is waken by rtc alarm(Avoid losting a rtc alarm event) */
 static TimerHandle_t restoreRegValOfMuTimer; /* use the timer to restore register's value of mu(To make sure that
                                                 register's value of mu is restored if cmc1 interrupt is not comming) */
+/* Used to do HR calculation in low power mode */
+static TimerHandle_t lpmHrCalculateTimer;
 
 static lsm_handle_t lsmHandle;
 static max_handle_t maxHandle;
@@ -993,7 +996,8 @@ static void APP_SRTM_SetMcore(srtm_dispatcher_t dispatcher, void *param1, void *
     switch (state)
     {
     case LPM_PowerModeActive:
-        /* FIXME: Restore sensor settings */
+        /* Stop Heartrate LPM timer */
+        xTimerStop(lpmHrCalculateTimer, portMAX_DELAY);
         break;
     case LPM_PowerModeWait:
         break;
@@ -1005,6 +1009,9 @@ static void APP_SRTM_SetMcore(srtm_dispatcher_t dispatcher, void *param1, void *
         break;
     case LPM_PowerModePowerDown:
         {
+            /* Start Heartrate LPM timer */
+            xTimerStart(lpmHrCalculateTimer, portMAX_DELAY);
+            /* Enter PD mode */
             LPM_SetPowerMode_FromTask(LPM_PowerModePowerDown);
         }
         break;
@@ -1137,6 +1144,14 @@ static void APP_CheckLsmSensorInterrupt_Dispatcher(srtm_dispatcher_t dispatcher,
     APP_CheckLsmSensorInterrupt();
 }
 
+static void APP_SetMcore_PowerMode(lpm_rtd_power_mode_e mode)
+{
+    srtm_procedure_t proc = SRTM_Procedure_Create(APP_SRTM_SetMcore, (void *)mode, NULL);
+
+    assert(proc);
+    SRTM_Dispatcher_PostProc(disp, proc);
+}
+
 static void APP_CheckMaxSensorInterrupt(void)
 {
     status_t result;
@@ -1181,6 +1196,16 @@ static void APP_CheckMaxSensorInterrupt(void)
                                             (uint8_t *)(&max_sensor.heartrate.beats), sizeof(max_sensor.heartrate.beats));
                     sensorAdapter.reportData(sensorAdapter.service, SRTM_SensorTypeSpO2, 0,
                                             (uint8_t *)(&max_sensor.spo2.rate), sizeof(max_sensor.spo2.rate));
+                }
+                else
+                {
+                    /* AD is in suspend, so we will stop HR sampling and enter PD */
+                    if (kStatus_Success != MAX_Start_HrSpO2(&maxHandle, &g_maxConfig, false))
+                    {
+                        PRINTF("Stop HrSpO2 failed!\r\n");
+                    }
+                    /* Put M core to Power Down when A core enters suspend */
+                    APP_SetMcore_PowerMode(LPM_PowerModePowerDown);
                 }
             }
             hr_spo2_irq_count = 0;
@@ -1287,10 +1312,7 @@ static void APP_HandleGPIOHander(void *param)
             //APP_WakeupACore();
             APP_SRTM_WakeupCA35();
 
-            srtm_procedure_t proc = SRTM_Procedure_Create(APP_SRTM_SetMcore, (void *)LPM_PowerModeActive, NULL);
-
-            assert(proc);
-            SRTM_Dispatcher_PostProc(disp, proc);
+            APP_SetMcore_PowerMode(LPM_PowerModeActive);
         }
         if (suspendContext.io.data[io_idx].timer)
         {
@@ -1665,6 +1687,31 @@ static void APP_SRTM_PollLinkup(srtm_dispatcher_t dispatcher, void *param1, void
         {
             /* Start timer to poll linkup status. */
             xTimerStart(linkupTimer, portMAX_DELAY);
+        }
+    }
+}
+
+static void APP_LpmHrCalculationTimerCallback(TimerHandle_t xTimer)
+{
+    srtm_status_t status = SRTM_Status_Success;
+
+    PRINTF("\r\n Lpm HR Calculation Timer triggered\r\n", __func__, __LINE__);
+
+    if (max_sensor.dataEnabled)
+    {
+        if (!max_sensor.stateEnabled)
+        {
+            /* Initialize HrSpO2. */
+            status = APP_SRTM_Max_Sensor_Init();
+        }
+        if (status == SRTM_Status_Success)
+        {
+            memset(&g_max_sensor_data_buf, 0, sizeof(max_sample_buf_t));
+            if (kStatus_Success == MAX_Start_HrSpO2(&maxHandle, &g_maxConfig, true))
+            {
+                max_sensor.dataEnabled   = true;
+            }
+            xTimerStart(sensorMaxFlushFiFoTimer, pdMS_TO_TICKS(10));
         }
     }
 }
@@ -2721,10 +2768,7 @@ int32_t MU0_A_IRQHandler(void)
             SRTM_Dispatcher_PostProc(disp, proc);
 
             /* Put M core to Power Down when A core enters suspend */
-            proc = SRTM_Procedure_Create(APP_SRTM_SetMcore, (void *)LPM_PowerModePowerDown, NULL);
-
-            assert(proc);
-            SRTM_Dispatcher_PostProc(disp, proc);
+            APP_SetMcore_PowerMode(LPM_PowerModePowerDown);
         }
         AD_WillEnterMode = AD_ACT;
     }
@@ -3101,6 +3145,8 @@ void APP_SRTM_Init(void)
         xTimerCreate("Linkup", APP_MS2TICK(APP_LINKUP_TIMER_PERIOD_MS), pdFALSE, NULL, APP_LinkupTimerCallback);
     assert(linkupTimer);
 
+    /* Enable auto reload for the HR lpm timer */
+    lpmHrCalculateTimer = xTimerCreate("lpmHrCalculateTimer", APP_MS2TICK(APP_LPM_HR_CAL_INTERVAL), pdTRUE, NULL, APP_LpmHrCalculationTimerCallback);
     /* Create SRTM dispatcher */
     disp = SRTM_Dispatcher_Create();
 

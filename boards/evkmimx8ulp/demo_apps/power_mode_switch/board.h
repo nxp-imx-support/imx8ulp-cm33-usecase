@@ -82,6 +82,9 @@
         APP_PIN_LSM6DSO_INT1    \
     }
 
+/* In low power mode, do HR calculation every 5* 60 * 1000 ms (5 mins) */
+#define APP_LPM_HR_CAL_INTERVAL     (5 * 60 * 1000)
+
 /* Board mipi to hdmi bridge ic(IT6161) */
 #define BOARD_DISPLAY_I2C_BASEADDR   LPI2C0
 #define BOARD_DISPLAY_I2C_CLOCK_FREQ CLOCK_GetLpi2cClkFreq(0)
