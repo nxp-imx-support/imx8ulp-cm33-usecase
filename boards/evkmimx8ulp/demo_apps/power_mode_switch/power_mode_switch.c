@@ -120,12 +120,15 @@ extern pca9460_buck3ctrl_t buck3_ctrl;
 extern pca9460_ldo1_cfg_t ldo1_cfg;
 static uint32_t iomuxBackup[3][25]; /* Backup 25 PTA, 16 PTB and 24 PTC IOMUX registers */
 static uint32_t gpioICRBackup[3][25];
+static int32_t g_is_wakeup_sig_blocking = 0;
 
 static uint32_t g_Wakeup_Pins[] = BOARD_WAKEUP_PINS_LIST;
 
 void APP_SuspendTaskForWakeup(void)
 {
+	g_is_wakeup_sig_blocking = 1;
     xSemaphoreTake(s_wakeupSig, portMAX_DELAY);
+    g_is_wakeup_sig_blocking = 0;
 }
 
 static bool APP_Is_WakeupPin(int32_t pin_grp, int32_t pin_idx)
@@ -574,9 +577,9 @@ void APP_WUU0_IRQHandler(void)
     if (WUU_GetInternalWakeupModuleFlag(WUU0, WUU_MODULE_LPTMR1))
     {
         /* Woken up by LPTMR, then clear LPTMR flag. */
-        LPTMR_ClearStatusFlags(LPTMR1, kLPTMR_TimerCompareFlag);
-        LPTMR_DisableInterrupts(LPTMR1, kLPTMR_TimerInterruptEnable);
-        LPTMR_StopTimer(LPTMR1);
+        //LPTMR_ClearStatusFlags(LPTMR1, kLPTMR_TimerCompareFlag);
+        //LPTMR_DisableInterrupts(LPTMR1, kLPTMR_TimerInterruptEnable);
+        //LPTMR_StopTimer(LPTMR1);
         wakeup = true;
     }
 
@@ -622,13 +625,18 @@ void APP_WUU0_IRQHandler(void)
     if (WUU_GetInternalWakeupModuleFlag(WUU0, WUU_MODULE_SYSTICK))
     {
         /* Woken up by Systick LPTMR, then clear LPTMR flag. */
-        LPTMR_ClearStatusFlags(SYSTICK_BASE, kLPTMR_TimerCompareFlag);
+        //LPTMR_ClearStatusFlags(SYSTICK_BASE, kLPTMR_TimerCompareFlag);
     }
 
     if (wakeup)
     {
-        xSemaphoreGiveFromISR(s_wakeupSig, NULL);
-        portYIELD_FROM_ISR(pdTRUE);
+        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+        if (1 == g_is_wakeup_sig_blocking)
+        {
+            xSemaphoreGiveFromISR(s_wakeupSig, &xHigherPriorityTaskWoken);
+        }
+        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
     }
 }
 
@@ -636,6 +644,7 @@ void APP_WUU0_IRQHandler(void)
 void LPTMR1_IRQHandler(void)
 {
     bool wakeup = false;
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
     if (kLPTMR_TimerInterruptEnable & LPTMR_GetEnabledInterrupts(LPTMR1))
     {
@@ -647,13 +656,18 @@ void LPTMR1_IRQHandler(void)
 
     if (wakeup)
     {
-        xSemaphoreGiveFromISR(s_wakeupSig, NULL);
-        portYIELD_FROM_ISR(pdTRUE);
+        if (1 == g_is_wakeup_sig_blocking)
+        {
+            xSemaphoreGiveFromISR(s_wakeupSig, &xHigherPriorityTaskWoken);
+        }
+        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
     }
 }
 
 static void APP_IRQDispatcher(IRQn_Type irq, void *param)
 {
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
     switch (irq)
     {
         case WUU0_IRQn:
@@ -665,16 +679,22 @@ static void APP_IRQDispatcher(IRQn_Type irq, void *param)
                                             kRGPIO_InterruptOutput2))
             {
                 /* Flag will be cleared by app_srtm.c */
-                xSemaphoreGiveFromISR(s_wakeupSig, NULL);
-                portYIELD_FROM_ISR(pdTRUE);
+                if (1 == g_is_wakeup_sig_blocking)
+                {
+                    xSemaphoreGiveFromISR(s_wakeupSig, &xHigherPriorityTaskWoken);
+                }
+                portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
             }
         case GPIOB_INT0_IRQn:
             if ((1U << GPIO_PIN_IDX(APP_PIN_LSM6DSO_INT1)) &
                 RGPIO_GetPinsInterruptFlags(RGPIO_GetBaseByInstance(GPIO_PORT_IDX(APP_PIN_LSM6DSO_INT1)), kRGPIO_InterruptOutput2))
             {
                 /* Flag will be cleared by app_srtm.c */
-                xSemaphoreGiveFromISR(s_wakeupSig, NULL);
-                portYIELD_FROM_ISR(pdTRUE);
+                if (1 == g_is_wakeup_sig_blocking)
+                {
+                    xSemaphoreGiveFromISR(s_wakeupSig, &xHigherPriorityTaskWoken);
+                }
+                portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
             }
             break;
         default:
