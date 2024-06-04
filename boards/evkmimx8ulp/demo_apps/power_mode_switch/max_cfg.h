@@ -11,7 +11,7 @@
 #include "fsl_common.h"
 
 /* MAX Configurations */
-#define MAX_CFG_MODE                (kMAX_HrSpo2Mode)
+#define MAX_CFG_MODE                (kMAX_HrMode)
 #define MAX_CFG_PULSEWIDTH          (kMAX_PW_411US_18Bits)
 #define MAX_CFG_SAMPLERATE          (kMAX_SR_400Hz)
 #define MAX_CFG_ADCRANGE            (kMAX_AdcRge_01)
