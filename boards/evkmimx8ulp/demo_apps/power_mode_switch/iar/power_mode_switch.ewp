@@ -1351,6 +1351,7 @@
                     <state>BOARD_USE_CODEC=1</state>
                     <state>CODEC_WM8960_ENABLE</state>
                     <state>MCUXPRESSO_SDK</state>
+                    <state>DEBUG_CONSOLE_TRANSFER_NON_BLOCKING</state>
                 </option>
                 <option>
                     <name>CCPreprocFile</name>
@@ -2464,6 +2465,7 @@
                     <state>BOARD_USE_CODEC=1</state>
                     <state>CODEC_WM8960_ENABLE</state>
                     <state>MCUXPRESSO_SDK</state>
+                    <state>DEBUG_CONSOLE_TRANSFER_NON_BLOCKING</state>
                 </option>
                 <option>
                     <name>CCPreprocFile</name>
@@ -3581,6 +3583,7 @@
                     <state>BOARD_USE_CODEC=1</state>
                     <state>CODEC_WM8960_ENABLE</state>
                     <state>MCUXPRESSO_SDK</state>
+                    <state>DEBUG_CONSOLE_TRANSFER_NON_BLOCKING</state>
                 </option>
                 <option>
                     <name>CCPreprocFile</name>
