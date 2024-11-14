@@ -345,7 +345,7 @@ uint32_t tmp_stack[0x100];
 /* FreeRTOS implemented Systick handler. */
 extern void xPortSysTickHandler(void);
 extern void __vector_table(void);
-
+extern void APP_CheckPedometerInterrupt(void);
 /* The LPM task will receive signal to set power mode */
 static void LPM_Mode_Set_Task(void *pvParameters)
 {
@@ -363,6 +363,8 @@ static void LPM_Mode_Set_Task(void *pvParameters)
             if (LPM_SetPowerMode_WithHooks(LPM_PowerModePowerDown))
             {
                 APP_SRTM_SetWakeupPin(APP_WAKEUP_PIN_ID, (uint16_t)WUU_WAKEUP_PIN_TYPE | 0x100);
+                APP_SRTM_SetWakeupPin(APP_PIN_LSM6DSO_INT1, (uint16_t)kWUU_ExternalPinRisingEdge | 0x100);
+                APP_CheckPedometerInterrupt();
                 APP_SuspendTaskForWakeup();
                 /* The call might be blocked by SRTM dispatcher task. Must be called after power mode reset. */
                 APP_ClearWakeupConfig(targetPowerMode, kAPP_WakeupSourcePin);
