@@ -1135,6 +1135,10 @@ int main(void)
     UPOWER_PowerOnMemPart(0U, (uint32_t)kUPOWER_MP1_DMA0);
     UPOWER_ReduceBuck23VoltInSTBY();
 
+    // Timing fix for SN300
+    UPOWER_SetPmicReg(0x40, 0x01);
+    UPOWER_SetPmicReg(0x0A, 0x04);
+
     CLOCK_SetIpSrcDiv(kCLOCK_Tpm0, kCLOCK_Pcc1BusIpSrcCm33Bus, 1U, 0U);
     CLOCK_SetIpSrcDiv(kCLOCK_Lpi2c0, kCLOCK_Pcc1BusIpSrcCm33Bus, 0U, 0U);
     CLOCK_SetIpSrcDiv(kCLOCK_Lpi2c1, kCLOCK_Pcc1BusIpSrcCm33Bus, 0U, 0U);

@@ -2882,6 +2882,8 @@ static srtm_status_t APP_SRTM_LfclEventHandler(
             AD_CurrentMode   = AD_ACT;
             AD_WillEnterMode = AD_UNKOWN;
             PRINTF("\r\nAD entered active mode\r\n");
+            SRTM_KeypadService_NotifyKeypadEvent(keypadService, APP_KEYPAD_INDEX_POWER, SRTM_KeypadValuePressed);
+            SRTM_KeypadService_NotifyKeypadEvent(keypadService, APP_KEYPAD_INDEX_POWER, SRTM_KeypadValueReleased);
             break;
         default:
             PRINTF("\r\n%s: %d unsupported event: 0x%x\r\n", __func__, __LINE__, event);
