@@ -249,12 +249,12 @@ status_t MAX_Init(max_handle_t *max_handle, max_config_t *configure)
         if (kMAX_MultiLedMode == configure->mode)
         {
             /* Slot1 for RED, Slot2 for IR */
-            if (MAX_WriteReg(max_handle, MULTI_MODE_REG1, 0x21) != kStatus_Success)
+            if (MAX_WriteReg(max_handle, MULTI_MODE_REG1, 0x3) != kStatus_Success)
             {
                 return kStatus_Fail;
             }
             /* Slot3 for Green, Slot4 for None */
-            if (MAX_WriteReg(max_handle, MULTI_MODE_REG2, 0x3) != kStatus_Success)
+            if (MAX_WriteReg(max_handle, MULTI_MODE_REG2, 0x0) != kStatus_Success)
             {
                 return kStatus_Fail;
             }

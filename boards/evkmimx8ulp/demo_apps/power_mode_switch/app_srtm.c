@@ -3175,7 +3175,7 @@ void APP_SRTM_Init(void)
     assert(linkupTimer);
 
     /* Enable auto reload for the HR lpm timer */
-    lpmHrCalculateTimer = xTimerCreate("lpmHrCalculateTimer", APP_MS2TICK(APP_LPM_HR_CAL_INTERVAL), pdTRUE, NULL, APP_LpmHrCalculationTimerCallback);
+    lpmHrCalculateTimer = xTimerCreate("lpmHrCalculateTimer", APP_MS2TICK(APP_LPM_HR_CAL_INTERVAL), pdFALSE, NULL, APP_LpmHrCalculationTimerCallback);
     xTimerStart(lpmHrCalculateTimer, portMAX_DELAY);
     /* Create SRTM dispatcher */
     disp = SRTM_Dispatcher_Create();

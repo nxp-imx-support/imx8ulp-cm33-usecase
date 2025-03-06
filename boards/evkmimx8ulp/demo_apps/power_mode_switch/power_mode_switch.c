@@ -813,7 +813,7 @@ void PowerModeSwitchTask(void *pvParameters)
     LPTMR_GetDefaultConfig(&lptmrConfig);
     lptmrConfig.prescalerClockSource = kLPTMR_PrescalerClock_1; /* Use RTC 1KHz as clock source. */
     lptmrConfig.bypassPrescaler      = false;
-    lptmrConfig.value                = kLPTMR_Prescale_Glitch_8; /* Divide clock source by 16. */
+    lptmrConfig.value                = kLPTMR_Prescale_Glitch_8; /* Divide clock source by 512. */
     LPTMR_Init(LPTMR1, &lptmrConfig);
     NVIC_SetPriority(LPTMR1_IRQn, APP_LPTMR1_IRQ_PRIO);
 

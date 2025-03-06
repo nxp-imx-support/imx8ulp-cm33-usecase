@@ -30,7 +30,7 @@ typedef struct _max_alg_config_t
 extern "C" {
 #endif
 
-bool MAX_Alg_Checkbeat(float sample);
+bool MAX_Alg_Checkbeat(float sample, float rawdata);
 float MAX_Alg_Remove_DC(float rawdata);
 float MAX_Alg_Lowbus_Filter(float x);
 float MAX_Alg_Diff_Avg(float sample);

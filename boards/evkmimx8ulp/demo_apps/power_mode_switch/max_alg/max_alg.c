@@ -18,16 +18,15 @@
  ******************************************************************************/
 #define APP_HRSPO2_ALG_TASK_PRIO    (2U)
 #define DC_REMOVE_ALPHA              0.5
+#define MIN_INTERVAL 0.3f  
+#define MAX_INTERVAL 1.5f  
+#define sample_rate 101
 
 static max_alg_config_t g_alg_config;
 static SemaphoreHandle_t sem_start_cal;
 
 uint8_t no_signal_counter = 0;
-uint8_t signal_counter = 0;
-uint8_t start_signal = 0;
-uint8_t last_start_signal;
-uint8_t beatcounter = 0;
-uint32_t last_sample_index = 0;
+uint8_t sum_sample = 0;
 
 /*
 NCI Due to the different echo intensities between the fingertips and fingerpulps, 
@@ -35,14 +34,15 @@ if the position of the fingers may not be correct, and the signal may not be det
 The next step is to add a function that automatically sets the threshold.
 */ 
 
-float heartrate_counter[3] = {0,0,0};
 float w[2] = {0.0, 0.0};
-float last_sample = 0;
+float v[3] = {0.0, 0.0, 0.0};
+float w2[2] = {0.0, 0.0};
 float dx_buffer[4] = {0,0,0,0};
-float sum_BPM = 0;
-float sum_sample = 0;
 float last_w = 0;
 float heartrate_sample_last;
+
+bool is_positive_corsszero_point = false;
+bool is_negative_corsszero_point = false;
 /******************************************************************************
  * Code
  ******************************************************************************/
@@ -82,33 +82,28 @@ float MAX_Alg_Lowbus_Filter(float x)
 {
 
     w[0] = w[1];
-    w[1] = (2.456770461833230612e-1 * x) + (0.50864590763335382206 * w[0]);
+    // w[1] = (0.13700924619520193914 * x) + (0.72598150760959612171 * w[0]);
+    // w[1] = (0.05932306989923252089 * x) + (0.88135386020153494435 * w[0]); // Fs=200, Fc=4
+    w[1] = (0.03053896819732337953 * x) + (0.93892206360535324094 * w[0]); // Fs=200, Fc=2
 
     return (w[0] + w[1]);
 }
 
-float MAX_Alg_Diff_Avg(float sample)
-{
-    float sample_dx;
-    float result;
-    float buffer_sum;
-    
-    sample_dx = (sample - last_sample) * 2;
-    last_sample = sample;
-
-    dx_buffer[0] = sample_dx;
-
-    buffer_sum = dx_buffer[0] + dx_buffer[1] + dx_buffer[2] + dx_buffer[3];
-
-    dx_buffer[3] = dx_buffer[2];
-    dx_buffer[2] = dx_buffer[1];
-    dx_buffer[1] = dx_buffer[0];
-    result = buffer_sum / 4;
-    
-    return result;
+int compare(const void* a, const void* b) {
+    return (*(uint8_t*)a - *(uint8_t*)b);
 }
 
-bool MAX_Alg_Checkbeat(float sample)
+float MAX_Alg_Lowbus_Filter2(float x)
+{
+
+    w2[0] = w2[1];
+    w2[1] = (0.13700924619520193914 * x) + (0.72598150760959612171 * w2[0]); // Fs=200, Fc=2
+
+    return (w2[0] + w2[1]);
+}
+
+
+bool MAX_Alg_Checkbeat(float sample, float rawdata )
 {
 
     float heartrate_sample_current;
@@ -116,102 +111,107 @@ bool MAX_Alg_Checkbeat(float sample)
 
     heartrate_sample_current = sample;
 
-    if(((heartrate_sample_last < 0) & (heartrate_sample_current >= 0)) | ((heartrate_sample_last <= 0) & (heartrate_sample_current > 0))) // find the positive corss-zero point
+    if (rawdata < 4000) // if no finger, skip
     {
-        sum_sample = 0;
-        start_signal++;
+        return false;
     }
 
-    if(((heartrate_sample_last > 0)& (heartrate_sample_current <= 0)) | ((heartrate_sample_last >= 0) & (heartrate_sample_current < 0))) // find the negative corss-zero point
+    if(((heartrate_sample_last < 0) && (heartrate_sample_current >= 0)) || ((heartrate_sample_last <= 0) && (heartrate_sample_current > 0))) // find the positive corss-zero point
     {
-        sum_sample = 0;
-        start_signal++;
+        is_positive_corsszero_point = true;
     }
 
-    sum_sample = sum_sample + sample;
-
-    if ((sum_sample >= 200) & (sum_sample < 1000) & (start_signal != last_start_signal))
+    if(((heartrate_sample_last > 0)&& (heartrate_sample_current <= 0)) || ((heartrate_sample_last >= 0) && (heartrate_sample_current < 0))) // find the negative corss-zero point
     {
-        heart_beated = true;
+        is_negative_corsszero_point = true;
+    }
 
-        last_start_signal = start_signal;
+    sum_sample++;
+
+    if (is_positive_corsszero_point && is_negative_corsszero_point)
+    {
+        if((sum_sample > 50) && (sum_sample < 180))
+        {
+            heart_beated = true;
+        }
+        sum_sample = 0;
+        is_positive_corsszero_point = false;
+        is_negative_corsszero_point = false;
     }
 
     heartrate_sample_last = heartrate_sample_current;
-
-    // PRINTF("{P1|GREEN AC|0,255,0|%f}\r\n", sum_sample); // Used for viewing the wave
 
     return heart_beated;
 }
 
 status_t MAX_Alg_Cal_HeartRate(max_alg_config_t *config, uint32_t *hr_beats)
 {
-    /* Fake code to test */
+
     uint32_t sample_value;
-    float BPM;
-    no_signal_counter++;
+
+    uint32_t a[15] = {0};
+    uint8_t valid_intervals[18] = {0};
+    uint8_t valid_count = 0;
+    const int min_interval_samples = (int)(MIN_INTERVAL * sample_rate);
+    const int max_interval_samples = (int)(MAX_INTERVAL * sample_rate);
+    uint8_t median_interval = 0;
+    uint8_t beat_index = 0;
     for (uint32_t sample_index=0; sample_index < config->sample_buf->sample_count; sample_index++)
     {
+        
+        float ac_result=0;
+        float lp_result=0;
+        float lp_result2=0;
+        bool check_heart_beat = false;
+        sample_value = MAX_Sample_Adapter((config->sample_buf->sample_buf + sample_index));
+        
+        lp_result = MAX_Alg_Lowbus_Filter((float)sample_value);
+        ac_result = MAX_Alg_Remove_DC(lp_result);
+        lp_result2 = MAX_Alg_Lowbus_Filter2(ac_result);
+        check_heart_beat = MAX_Alg_Checkbeat(lp_result2, (float)sample_value);
+        // PRINTF("{P0|SAMPLE|0,0,255|%f}\r\n", (float)sample_value);
+        // PRINTF("{P1|LP|255,0,0|%f}\r\n", lp_result);
+        // PRINTF("{P2|AC|0,255,0|%f}\r\n", ac_result);
+        // PRINTF("{P3|LP2|255,0,0|%f}\r\n", lp_result2);            
+        // PRINTF("{P3|BEAT|255,0,255|%d}\r\n", check_heart_beat);
+        if (check_heart_beat)
         {
-            float ac_result=0;
-            float dx_result=0;
-            float lp_result=0;
-            bool check_heart_beat = false;
-            sample_value = MAX_Sample_Adapter((config->sample_buf->sample_buf + sample_index));
-
-            ac_result = MAX_Alg_Remove_DC((float)sample_value);
-            dx_result = MAX_Alg_Diff_Avg(ac_result);
-            lp_result = MAX_Alg_Lowbus_Filter(dx_result);
-            // PRINTF("{P0|RED RAW|255,0,0|%f}\r\n", dx_result);
-            check_heart_beat = MAX_Alg_Checkbeat(lp_result);
-
-            if (check_heart_beat)
+            a[beat_index] = sample_index;
+            
+            if(beat_index > 0)
             {
-
-                signal_counter++;
-                no_signal_counter = 0;
-                if (signal_counter >= 5)
-                { 
-                    BPM = 60/((sample_index - last_sample_index)*(float)MAX_CFG_SAMPLING_TIME/config->sample_buf->sample_count);
-                    
-                    // PRINTF("current_timestamp: %d\r\n", sample_index);
-                    // PRINTF("last_sample_index: %d\r\n", last_sample_index);
-                    // PRINTF("BPM: %f\r\n", BPM);
-                    last_sample_index = sample_index;
-
-                    if (BPM > 0 & BPM < 150)
-                    {
-                        beatcounter++;
-                        sum_BPM = BPM + sum_BPM;
-                        // PRINTF("BPM: %f\r\n", BPM);
-                        // PRINTF("beatcounter: %d\r\n", beatcounter);
-                        heartrate_counter[0] = (sum_BPM / beatcounter);  
-                    }
+                if ((a[beat_index] - a[beat_index-1]) > min_interval_samples && (a[beat_index] - a[beat_index-1]) < max_interval_samples)
+                {
+                    valid_intervals[valid_count] = a[beat_index] - a[beat_index-1];
+                    valid_count++; 
                 }
-            }
-        }
-    }
-    sum_BPM = 0;
-    beatcounter = 0;
-    last_sample_index = 0;
 
-    *hr_beats = (uint8_t)((heartrate_counter[0] + heartrate_counter[1] + heartrate_counter[2]) /3);
-    // PRINTF("-------------------------------------------------------\r\n");
-    // PRINTF("\r\nbeatreate0 is %f\r\n", heartrate_counter[0]);
-    // PRINTF("\r\nbeatreate1 is %f\r\n", heartrate_counter[1]);
-    // PRINTF("\r\nbeatreate2 is %f\r\n", heartrate_counter[2]);
-    // PRINTF("-------------------------------------------------------\r\n");   
-    
-    heartrate_counter[2] = heartrate_counter[1];
-    heartrate_counter[1] = heartrate_counter[0];
-    if (no_signal_counter > 2)
-    {
-        heartrate_counter[0] = 0;
-        heartrate_counter[1] = 0;
-        heartrate_counter[2] = 0;
-        no_signal_counter = 0;
-        signal_counter = 0;
+            }
+            beat_index++;
+        }
+        
     }
+
+    if (valid_count < 1) 
+    {
+        no_signal_counter++;
+    }
+    else
+    {
+        qsort(valid_intervals, valid_count, sizeof(uint8_t), compare);
+        median_interval = valid_count % 2 ? valid_intervals[valid_count/2] : (valid_intervals[valid_count/2-1] + valid_intervals[valid_count/2])/2;
+        
+        *hr_beats = (float)60 * 10000 / (median_interval) / (config->sample_buf->sample_count / MAX_CFG_SAMPLING_TIME);  
+        // PRINTF("*hr_beats: %d\r\n", *hr_beats);    
+        no_signal_counter = 0;          
+    }
+
+    if(no_signal_counter == 1)
+    {
+        *hr_beats = 0;
+        no_signal_counter = 0;
+    }
+
     return kStatus_Success;
 }
 
