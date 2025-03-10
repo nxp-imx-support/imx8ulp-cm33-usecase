@@ -1,6 +1,6 @@
 Release Name: MCUXpresso Software Development Kit (SDK)
 Release Version: 2.13.1
-Package License: LA_OPT_NXP_Software_License.txt v39 August 2022- Additional Distribution License granted, license in Section 2.3 applies
+Package License: LA_OPT_Online Code Hosting NXP_Software_License - v1.3 December 2024
 
 SDK_Peripheral_Driver      Name: SDK Peripheral Driver                       
                            Version: 2.x.x                                    
