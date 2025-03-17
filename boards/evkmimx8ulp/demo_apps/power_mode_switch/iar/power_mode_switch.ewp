@@ -2468,6 +2468,9 @@
                     <state>CODEC_WM8960_ENABLE</state>
                     <state>MCUXPRESSO_SDK</state>
                     <state>DEBUG_CONSOLE_TRANSFER_NON_BLOCKING</state>
+                    <state>PRINTF_ADVANCED_ENABLE</state>
+                    <state>PRINTF_FLOAT_ENABLE</state>
+                    <state>DEBUG_CONSOLE_TRANSFER_NON_BLOCKING</state>
                 </option>
                 <option>
                     <name>CCPreprocFile</name>
@@ -2942,7 +2945,7 @@
             <data>
                 <extensions></extensions>
                 <cmdline></cmdline>
-                <hasPrio>192</hasPrio>
+                <hasPrio>128</hasPrio>
                 <buildSequence>inputOutputBased</buildSequence>
             </data>
         </settings>
