@@ -45,7 +45,7 @@
 #include "max_cfg.h"
 #include "lpm.h"
 #include "power_mode_switch.h"
-#include "fsl_lptmr.h"
+
 /*******************************************************************************
  * Definitions
  ******************************************************************************/
@@ -173,8 +173,6 @@ const struct io_struct io_id_table[] = {
     {APP_PIN_NFC_VEN, IO_AS_OUTPUT, APP_KEYPAD_INDEX_RESERVED},
     {APP_PIN_NFC_GPIO2_A0, IO_AS_OUTPUT, APP_KEYPAD_INDEX_RESERVED},
 };
-
-uint8_t iii = 0;
 
 /*******************************************************************************
  * Prototypes
@@ -1040,25 +1038,6 @@ void APP_SRTM_ShutdownCA35(void)
     SRTM_Dispatcher_PostProc(disp, proc);
 }
 
-void LPTMR1_SetWakeupConfig(lpm_rtd_power_mode_e targetMode)
-{
-    app_wakeup_source_t wakeup_source = kAPP_WakeupSourceLptmr;
-    uint32_t wakeup_timeout = 5 * 60;  // 5 min wakeup
-
-    LPTMR_SetTimerPeriod(LPTMR1, (1000UL * wakeup_timeout / 512U));
-
-    /* Set WUU LPTMR1 module wakeup source. */
-    APP_SRTM_SetWakeupModule(WUU_MODULE_LPTMR1, kWUU_InternalModuleDMATrigger);
-    PCC1->PCC_LPTMR1 &= ~PCC1_PCC_LPTMR1_SSADO_MASK;
-    PCC1->PCC_LPTMR1 |= PCC1_PCC_LPTMR1_SSADO(1);
-
-}
-
-void LPTMR1_ClearWakeupConfig(void)
-{
-    APP_SRTM_SetWakeupModule(WUU_MODULE_LPTMR1, false);
-}
-
 /* WUU interrupt handler. */
 void WUU0_IRQHandler(void)
 {
@@ -1165,18 +1144,20 @@ static void APP_CheckLsmSensorInterrupt_Dispatcher(srtm_dispatcher_t dispatcher,
     APP_CheckLsmSensorInterrupt();
 }
 
-void APP_SetMcore_PowerMode(lpm_rtd_power_mode_e mode)
+static void APP_SetMcore_PowerMode(lpm_rtd_power_mode_e mode)
 {
     srtm_procedure_t proc = SRTM_Procedure_Create(APP_SRTM_SetMcore, (void *)mode, NULL);
 
     assert(proc);
     SRTM_Dispatcher_PostProc(disp, proc);
 }
+
 static void APP_CheckMaxSensorInterrupt(void)
 {
     status_t result;
     BaseType_t reschedule = pdFALSE;
     uint8_t int_status_1 = 0, int_status_2 = 0;
+
     if (kStatus_Success != MAX_ReadReg(&maxHandle, INT_STATUS_REG1, &int_status_1, 1))
     {
         PRINTF("Read MAX Register 1 failed!\r\n");
@@ -1218,21 +1199,13 @@ static void APP_CheckMaxSensorInterrupt(void)
                 }
                 else
                 {
-                    iii++;
                     /* AD is in suspend, so we will stop HR sampling and enter PD */
                     if (kStatus_Success != MAX_Start_HrSpO2(&maxHandle, &g_maxConfig, false))
                     {
                         PRINTF("Stop HrSpO2 failed!\r\n");
                     }
-                    if (iii == 5)
-                    {
-                        iii = 0;
-                        /* Put M core to Power Down when A core enters suspend */
-                        LPTMR_StartTimer(LPTMR1);
-                        LPTMR_EnableInterrupts(LPTMR1, kLPTMR_TimerInterruptEnable);
-                        APP_SetMcore_PowerMode(LPM_PowerModePowerDown);
-                    }
-
+                    /* Put M core to Power Down when A core enters suspend */
+                    APP_SetMcore_PowerMode(LPM_PowerModePowerDown);
                 }
             }
             hr_spo2_irq_count = 0;
@@ -1339,6 +1312,7 @@ static void APP_HandleGPIOHander(void *param)
             //APP_WakeupACore();
             APP_SRTM_WakeupCA35();
 
+            APP_SetMcore_PowerMode(LPM_PowerModeActive);
         }
         if (suspendContext.io.data[io_idx].timer)
         {
@@ -1721,6 +1695,7 @@ static void APP_LpmHrCalculationTimerCallback(TimerHandle_t xTimer)
 {
     srtm_status_t status = SRTM_Status_Success;
 
+    PRINTF("\r\n Lpm HR Calculation Timer triggered\r\n", __func__, __LINE__);
 
     if (max_sensor.dataEnabled)
     {
@@ -2532,7 +2507,7 @@ static status_t APP_SRTM_InitLsmSensorDevice(void)
     return result;
 }
 
-status_t APP_SRTM_InitMaxSensorDevice(void)
+static status_t APP_SRTM_InitMaxSensorDevice(void)
 {
     status_t result;
     uint8_t port_idx        = 0;
@@ -2791,8 +2766,6 @@ int32_t MU0_A_IRQHandler(void)
 
             assert(proc);
             SRTM_Dispatcher_PostProc(disp, proc);
-            LPTMR_StartTimer(LPTMR1);
-            LPTMR_EnableInterrupts(LPTMR1, kLPTMR_TimerInterruptEnable);
 
             /* Put M core to Power Down when A core enters suspend */
             APP_SetMcore_PowerMode(LPM_PowerModePowerDown);
@@ -3175,8 +3148,7 @@ void APP_SRTM_Init(void)
     assert(linkupTimer);
 
     /* Enable auto reload for the HR lpm timer */
-    lpmHrCalculateTimer = xTimerCreate("lpmHrCalculateTimer", APP_MS2TICK(APP_LPM_HR_CAL_INTERVAL), pdFALSE, NULL, APP_LpmHrCalculationTimerCallback);
-    xTimerStart(lpmHrCalculateTimer, portMAX_DELAY);
+    lpmHrCalculateTimer = xTimerCreate("lpmHrCalculateTimer", APP_MS2TICK(APP_LPM_HR_CAL_INTERVAL), pdTRUE, NULL, APP_LpmHrCalculationTimerCallback);
     /* Create SRTM dispatcher */
     disp = SRTM_Dispatcher_Create();
 
