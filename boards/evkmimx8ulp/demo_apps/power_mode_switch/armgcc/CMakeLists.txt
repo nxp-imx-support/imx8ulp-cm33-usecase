@@ -56,6 +56,8 @@ add_executable(${MCUX_SDK_PROJECT_NAME}
 "${ProjDirPath}/../empty_rsc_table.c"
 "${ProjDirPath}/../app_srtm.c"
 "${ProjDirPath}/../app_srtm.h"
+"${ProjDirPath}/../max_alg/max_alg.c"
+"${ProjDirPath}/../max_alg/max_alg.h"
 "${ProjDirPath}/../srtm/channels/srtm_rpmsg_endpoint.h"
 "${ProjDirPath}/../srtm/channels/srtm_rpmsg_endpoint.c"
 "${ProjDirPath}/../srtm/services/srtm_audio_service.h"
@@ -87,6 +89,7 @@ target_include_directories(${MCUX_SDK_PROJECT_NAME} PUBLIC
     ${SdkRootDirPath}/boards/evkmimx8ulp
     ${ProjDirPath}/../srtm/channels
     ${ProjDirPath}/../srtm/services
+    ${ProjDirPath}/../max_alg
 )
 
 set(CMAKE_MODULE_PATH
@@ -111,6 +114,7 @@ set(CMAKE_MODULE_PATH
     ${SdkRootDirPath}/components/rtc
     ${SdkRootDirPath}/components/gpio
     ${SdkRootDirPath}/components/codec/wm8960
+    ${SdkRootDirPath}/components/max30101
 )
 
 # include modules
@@ -218,6 +222,7 @@ include(driver_wm8960_MIMX8UD7_cm33)
 
 include(utilities_misc_utilities_MIMX8UD7_cm33)
 
+include(driver_max30101_MIMX8UD7_cm33)
 
 IF(NOT DEFINED TARGET_LINK_SYSTEM_LIBRARIES)  
     SET(TARGET_LINK_SYSTEM_LIBRARIES "-lm -lc -lgcc -lnosys")  
